@@ -1,5 +1,5 @@
-// frontend/src/components/admin/AdminDashboardPage.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import FeedbackManager from './FeedbackManager.jsx';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from '../../contexts/AppStateContext.jsx';
 import { useAuth } from '../../hooks/useAuth.jsx';
@@ -17,7 +17,7 @@ import GlobalBountyModal from './GlobalBountyModal.jsx';
 import AdminUserList from './AdminUserList.jsx'; // We will create this next
 
 
-import { UploadCloud, Trash2, Eye, LogOut, Loader2, AlertTriangle, CheckCircle, RefreshCw, Shield, Users, Lightbulb, HelpCircle, Cog, Database, BarChart2, Target } from 'lucide-react'; // <<< ADDED Database ICON
+import { UploadCloud, Trash2, Eye, LogOut, Loader2, AlertTriangle, CheckCircle, RefreshCw, Shield, Users, Lightbulb, HelpCircle, Cog, Database, BarChart2, Target, MessageSquare } from 'lucide-react'; // <<< ADDED Database ICON
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { marked } from 'marked';
@@ -99,6 +99,7 @@ function AdminDashboardPage() {
     const [isLlmModalOpen, setIsLlmModalOpen] = useState(false);
     const [isDatasetModalOpen, setIsDatasetModalOpen] = useState(false);
     const [isGlobalBountyModalOpen, setIsGlobalBountyModalOpen] = useState(false); // New State
+    const [isFeedbackAdminModalOpen, setIsFeedbackAdminModalOpen] = useState(false);
     const [showDeleteDocModal, setShowDeleteDocModal] = useState(false);
     const [docToDelete, setDocToDelete] = useState(null);
 
@@ -220,6 +221,7 @@ function AdminDashboardPage() {
                     <IconButton icon={Users} onClick={() => setIsUserChatsModalOpen(true)} title="User Management & Chats" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary" />
                     <IconButton icon={Target} onClick={() => setIsGlobalBountyModalOpen(true)} title="Broadcast Global Bounty" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-accent" />
                     <IconButton icon={Database} onClick={() => setIsDatasetModalOpen(true)} title="Dataset Management" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary" />
+                    <IconButton icon={MessageSquare} onClick={() => setIsFeedbackAdminModalOpen(true)} title="Feedback Manager" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-blue-500" />
                     <IconButton icon={Cog} onClick={() => setIsLlmModalOpen(true)} title="LLM Configuration" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary" />
                     <Button onClick={adminLogoutHandler} variant="danger" size="sm" leftIcon={<LogOut size={16} />}> Logout Admin </Button>
                 </div>
@@ -310,6 +312,9 @@ function AdminDashboardPage() {
             </Modal>
             <Modal isOpen={isLlmModalOpen} onClose={() => setIsLlmModalOpen(false)} title="LLM Configuration Management" size="4xl">
                 <LLMConfigManager />
+            </Modal>
+            <Modal isOpen={isFeedbackAdminModalOpen} onClose={() => setIsFeedbackAdminModalOpen(false)} title="User Feedback" size="4xl">
+                <FeedbackManager />
             </Modal>
             {/* <<< NEW MODAL FOR DATASETS --- */}
             <Modal isOpen={isDatasetModalOpen} onClose={() => setIsDatasetModalOpen(false)} title="Secure Dataset Management" size="5xl">

@@ -24,6 +24,10 @@ apiClient.interceptors.request.use(
 
 const api = {
     // --- System / Utils ---
+    submitFeedback: async (type, message) => {
+        const response = await apiClient.post('/feedback', { type, message });
+        return response.data;
+    },
     getOrchestratorStatus: async () => {
         try {
             // Hit root to avoid /api/auth fallthrough

@@ -130,3 +130,5 @@ export const startFineTuningJob = (payload) => {
 
 export const getAllUsers = () => makeAdminApiRequest('get', '/users');
 export const createGlobalBounty = (data) => makeAdminApiRequest('post', '/bounties/global', data);
+
+export const getPlatformFeedback = () => makeAdminApiRequest('get', '../feedback');

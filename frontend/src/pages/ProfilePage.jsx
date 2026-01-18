@@ -2,16 +2,19 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
+import FeedbackModal from '../components/profile/FeedbackModal';
+import Button from '../components/core/Button';
 import SkillTree from '../components/SkillTree';
 import BountyBoard from '../components/BountyBoard';
 import { motion } from 'framer-motion';
-import { User, Trophy, Star, Target, Brain, Award } from 'lucide-react';
+import { User, Trophy, Star, Target, Brain, Award, MessageSquarePlus } from 'lucide-react';
 
 const ProfilePage = () => {
     const { user } = useAuth();
     const [stats, setStats] = useState(null);
     const [bounties, setBounties] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -67,7 +70,19 @@ const ProfilePage = () => {
         <div className="min-h-screen bg-background-light dark:bg-background-dark p-4 md:p-8 space-y-8 overflow-y-auto custom-scrollbar">
 
             {/* Header Section */}
-            <header className="glass-panel p-6 rounded-2xl flex flex-col md:flex-row items-center gap-6">
+            <header className="glass-panel p-6 rounded-2xl flex flex-col md:flex-row items-center gap-6 relative">
+                <div className="absolute top-4 right-4">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsFeedbackOpen(true)}
+                        leftIcon={<MessageSquarePlus size={18} />}
+                        className="text-text-muted-light dark:text-text-muted-dark hover:text-primary"
+                    >
+                        Feedback
+                    </Button>
+                </div>
+
                 <div className="relative">
                     <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-4xl font-bold text-white shadow-lg border-4 border-surface-light dark:border-surface-dark">
                         {user?.username?.[0]?.toUpperCase()}
@@ -136,6 +151,8 @@ const ProfilePage = () => {
                     </section>
                 </div>
             </div>
+
+            <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
         </div>
     );
 };
