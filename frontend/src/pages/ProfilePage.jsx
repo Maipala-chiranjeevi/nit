@@ -74,11 +74,10 @@ const ProfilePage = () => {
             <header className="glass-panel p-6 rounded-2xl flex flex-col md:flex-row items-center gap-6 relative">
                 <div className="absolute top-4 right-4">
                     <Button
-                        variant="ghost"
                         size="sm"
                         onClick={() => setIsFeedbackOpen(true)}
                         leftIcon={<MessageSquarePlus size={18} />}
-                        className="text-text-muted-light dark:text-text-muted-dark hover:text-primary"
+                        className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-lg border-none"
                     >
                         Feedback
                     </Button>
@@ -112,48 +111,30 @@ const ProfilePage = () => {
                 </div>
             </header>
 
-            {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Main Content Vertical Stack */}
+            <div className="space-y-8">
 
-                {/* Left Col: Skill Tree & Heatmap */}
-                <div className="lg:col-span-2 space-y-6">
-                    <section>
-                        <ActivityHeatmap userId={user?._id} />
-                    </section>
-                    <section>
-                        <h2 className="text-xl font-bold vibrant-text mb-4 flex items-center gap-2">
-                            <Brain className="text-primary" /> Knowledge Map
-                        </h2>
-                        <SkillTree />
-                    </section>
-                </div>
+                {/* 1. Login Activity (Heatmap) */}
+                <section>
+                    <ActivityHeatmap userId={user?._id} />
+                </section>
 
-                {/* Right Col: Bounties & Stats */}
-                <div className="space-y-6">
-                    <section>
-                        <h2 className="text-xl font-bold vibrant-text mb-4 flex items-center gap-2">
-                            <Target className="text-accent" /> Active Challenges
-                        </h2>
-                        <BountyBoard bounties={bounties} onComplete={handleClaimBounty} />
-                    </section>
+                {/* 2. Bounty Section */}
+                <section>
+                    <h2 className="text-xl font-bold vibrant-text mb-4 flex items-center gap-2">
+                        <Target className="text-accent" /> Active Challenges
+                    </h2>
+                    <BountyBoard bounties={bounties} onComplete={handleClaimBounty} />
+                </section>
 
-                    <section className="glass-panel p-6 rounded-2xl">
-                        <h3 className="text-lg font-bold text-white mb-4">Recent Achievements</h3>
-                        <div className="space-y-3">
-                            {[1, 2, 3].map(i => (
-                                <div key={i} className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors">
-                                    <div className="p-2 bg-yellow-500/20 rounded-lg text-yellow-400">
-                                        <Trophy size={16} />
-                                    </div>
-                                    <div>
-                                        <div className="text-sm font-semibold text-gray-200">Consistency King</div>
-                                        <div className="text-xs text-gray-400">5 Day Streak</div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </section>
-                </div>
+                {/* 3. Skill Map (Skill Tree) */}
+                <section>
+                    <h2 className="text-xl font-bold vibrant-text mb-4 flex items-center gap-2">
+                        <Brain className="text-primary" /> Knowledge Map
+                    </h2>
+                    <SkillTree />
+                </section>
+
             </div>
 
             <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
