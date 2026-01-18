@@ -10,10 +10,10 @@ const User = require('../models/User');
 const ChatHistory = require('../models/ChatHistory');
 const { cacheMiddleware } = require('../middleware/cacheMiddleware');
 const { redisClient } = require('../config/redisClient');
-const LLMConfiguration = require('../models/LLMConfiguration'); 
+const LLMConfiguration = require('../models/LLMConfiguration');
 const { encrypt } = require('../utils/crypto');
 const { auditLog } = require('../utils/logger');
-const LLMPerformanceLog = require('../models/LLMPerformanceLog'); 
+const LLMPerformanceLog = require('../models/LLMPerformanceLog');
 
 const router = express.Router();
 
@@ -23,35 +23,35 @@ const router = express.Router();
 // @route   GET /api/admin/feedback-stats
 // @desc    Get aggregated feedback stats for each model
 router.get('/feedback-stats', async (req, res) => {
-    try {
-        const stats = await LLMPerformanceLog.aggregate([
-            {
-                $group: {
-                    _id: '$chosenModelId', // Group by the model's ID
-                    positive: { $sum: { $cond: [{ $eq: ['$userFeedback', 'positive'] }, 1, 0] } },
-                    negative: { $sum: { $cond: [{ $eq: ['$userFeedback', 'negative'] }, 1, 0] } },
-                    none: { $sum: { $cond: [{ $eq: ['$userFeedback', 'none'] }, 1, 0] } },
-                    total: { $sum: 1 }
-                }
-            },
-            {
-                $project: { // Reshape the output
-                    modelId: '$_id',
-                    feedback: {
-                        positive: '$positive',
-                        negative: '$negative',
-                        none: '$none'
-                    },
-                    totalResponses: '$total',
-                    _id: 0
-                }
-            }
-        ]);
-        res.json(stats);
-    } catch (error) {
-        console.error('Error fetching feedback stats:', error);
-        res.status(500).json({ message: 'Server error while fetching feedback stats.' });
-    }
+  try {
+    const stats = await LLMPerformanceLog.aggregate([
+      {
+        $group: {
+          _id: '$chosenModelId', // Group by the model's ID
+          positive: { $sum: { $cond: [{ $eq: ['$userFeedback', 'positive'] }, 1, 0] } },
+          negative: { $sum: { $cond: [{ $eq: ['$userFeedback', 'negative'] }, 1, 0] } },
+          none: { $sum: { $cond: [{ $eq: ['$userFeedback', 'none'] }, 1, 0] } },
+          total: { $sum: 1 }
+        }
+      },
+      {
+        $project: { // Reshape the output
+          modelId: '$_id',
+          feedback: {
+            positive: '$positive',
+            negative: '$negative',
+            none: '$none'
+          },
+          totalResponses: '$total',
+          _id: 0
+        }
+      }
+    ]);
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching feedback stats:', error);
+    res.status(500).json({ message: 'Server error while fetching feedback stats.' });
+  }
 });
 /* ====== END Model feedback routes ===== */
 
@@ -59,73 +59,73 @@ router.get('/feedback-stats', async (req, res) => {
 
 // GET /api/admin/llms - List all LLM configurations
 router.get('/llms', async (req, res) => {
-    try {
-        const configs = await LLMConfiguration.find();
-        res.json(configs);
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to fetch LLM configurations.' });
-    }
+  try {
+    const configs = await LLMConfiguration.find();
+    res.json(configs);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch LLM configurations.' });
+  }
 });
 
 // POST /api/admin/llms - Create a new LLM configuration
 router.post('/llms', async (req, res) => {
-    try {
-        const newConfig = new LLMConfiguration(req.body);
-        await newConfig.save();
-        res.status(201).json(newConfig);
-    } catch (error) {
-        res.status(400).json({ message: 'Failed to create LLM configuration.', error: error.message });
-    }
+  try {
+    const newConfig = new LLMConfiguration(req.body);
+    await newConfig.save();
+    res.status(201).json(newConfig);
+  } catch (error) {
+    res.status(400).json({ message: 'Failed to create LLM configuration.', error: error.message });
+  }
 });
 
 // PUT /api/admin/llms/:id - Update an LLM configuration
 router.put('/llms/:id', async (req, res) => {
-    try {
-        const updatedConfig = await LLMConfiguration.findByIdAndUpdate(req.params.id, req.body, { new: true });
-        if (!updatedConfig) return res.status(404).json({ message: 'LLM configuration not found.' });
-        res.json(updatedConfig);
-    } catch (error) {
-        res.status(400).json({ message: 'Failed to update LLM configuration.', error: error.message });
-    }
+  try {
+    const updatedConfig = await LLMConfiguration.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!updatedConfig) return res.status(404).json({ message: 'LLM configuration not found.' });
+    res.json(updatedConfig);
+  } catch (error) {
+    res.status(400).json({ message: 'Failed to update LLM configuration.', error: error.message });
+  }
 });
 
 // DELETE /api/admin/llms/:id - Delete an LLM configuration
 router.delete('/llms/:id', async (req, res) => {
-    try {
-        const deletedConfig = await LLMConfiguration.findByIdAndDelete(req.params.id);
-        if (!deletedConfig) return res.status(404).json({ message: 'LLM configuration not found.' });
-        res.json({ message: 'LLM configuration deleted successfully.' });
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to delete LLM configuration.' });
-    }
+  try {
+    const deletedConfig = await LLMConfiguration.findByIdAndDelete(req.params.id);
+    if (!deletedConfig) return res.status(404).json({ message: 'LLM configuration not found.' });
+    res.json({ message: 'LLM configuration deleted successfully.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to delete LLM configuration.' });
+  }
 });
 
 
 /* ====== END LLM Managemet Routes =====  */
 
-const CACHE_DURATION_SECONDS = 30; 
+const CACHE_DURATION_SECONDS = 30;
 // --- NEW Dashboard Stats Route ---
 // @route   GET /api/admin/dashboard-stats
 // @desc    Get key statistics for the admin dashboard
-router.get('/dashboard-stats',cacheMiddleware(CACHE_DURATION_SECONDS), async (req, res) => {
-    try {
-        const [totalUsers, totalAdminDocs, totalSessions, pendingApiKeys] = await Promise.all([
-            User.countDocuments(),
-            AdminDocument.countDocuments(),
-            ChatHistory.countDocuments(),
-            User.countDocuments({ apiKeyRequestStatus: 'pending' })
-        ]);
+router.get('/dashboard-stats', cacheMiddleware(CACHE_DURATION_SECONDS), async (req, res) => {
+  try {
+    const [totalUsers, totalAdminDocs, totalSessions, pendingApiKeys] = await Promise.all([
+      User.countDocuments(),
+      AdminDocument.countDocuments(),
+      ChatHistory.countDocuments(),
+      User.countDocuments({ apiKeyRequestStatus: 'pending' })
+    ]);
 
-        res.json({
-            totalUsers,
-            totalAdminDocs,
-            totalSessions,
-            pendingApiKeys
-        });
-    } catch (error) {
-        console.error('Error fetching dashboard stats:', error);
-        res.status(500).json({ message: 'Server error while fetching dashboard stats.' });
-    }
+    res.json({
+      totalUsers,
+      totalAdminDocs,
+      totalSessions,
+      pendingApiKeys
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error);
+    res.status(500).json({ message: 'Server error while fetching dashboard stats.' });
+  }
 });
 
 
@@ -133,16 +133,16 @@ router.get('/dashboard-stats',cacheMiddleware(CACHE_DURATION_SECONDS), async (re
 
 // @route   GET /api/admin/key-requests
 // @desc    Get all users with a pending API key request
-router.get('/key-requests',cacheMiddleware(CACHE_DURATION_SECONDS), async (req, res) => {
-    try {
-        const requests = await User.find({ apiKeyRequestStatus: 'pending' })
-            .select('email profile createdAt')
-            .sort({ createdAt: -1 });
-        res.json(requests);
-    } catch (error) {
-        console.error('Error fetching API key requests:', error);
-        res.status(500).json({ message: 'Server error while fetching requests.' });
-    }
+router.get('/key-requests', cacheMiddleware(CACHE_DURATION_SECONDS), async (req, res) => {
+  try {
+    const requests = await User.find({ apiKeyRequestStatus: 'pending' })
+      .select('email profile createdAt')
+      .sort({ createdAt: -1 });
+    res.json(requests);
+  } catch (error) {
+    console.error('Error fetching API key requests:', error);
+    res.status(500).json({ message: 'Server error while fetching requests.' });
+  }
 });
 
 // @route   POST /api/admin/key-requests/approve
@@ -172,14 +172,14 @@ router.post("/key-requests/approve", async (req, res) => {
     await user.save();
 
     auditLog(req, 'ADMIN_API_KEY_APPROVE', {
-        targetUserId: userId,
-        targetUserEmail: user.email
+      targetUserId: userId,
+      targetUserEmail: user.email
     });
     // --- NEW: Invalidate Redis Cache for pending requests and dashboard stats ---
     if (redisClient && redisClient.isOpen) {
-        await redisClient.del('__express__/api/admin/key-requests').catch(err => console.error("Redis DEL error:", err));
-        await redisClient.del('__express__/api/admin/dashboard-stats').catch(err => console.error("Redis DEL error:", err));
-        console.log(`Redis cache for '/api/admin/key-requests' and '/api/admin/dashboard-stats' invalidated.`);
+      await redisClient.del('__express__/api/admin/key-requests').catch(err => console.error("Redis DEL error:", err));
+      await redisClient.del('__express__/api/admin/dashboard-stats').catch(err => console.error("Redis DEL error:", err));
+      console.log(`Redis cache for '/api/admin/key-requests' and '/api/admin/dashboard-stats' invalidated.`);
     }
     // --- END NEW ---
 
@@ -209,14 +209,14 @@ router.post("/key-requests/reject", async (req, res) => {
     await user.save();
 
     auditLog(req, 'ADMIN_API_KEY_REJECT', {
-        targetUserId: userId,
-        targetUserEmail: user.email
+      targetUserId: userId,
+      targetUserEmail: user.email
     });
     // --- NEW: Invalidate Redis Cache for pending requests and dashboard stats ---
     if (redisClient && redisClient.isOpen) {
-        await redisClient.del('__express__/api/admin/key-requests').catch(err => console.error("Redis DEL error:", err));
-        await redisClient.del('__express__/api/admin/dashboard-stats').catch(err => console.error("Redis DEL error:", err));
-        console.log(`Redis cache for '/api/admin/key-requests' and '/api/admin/dashboard-stats' invalidated.`);
+      await redisClient.del('__express__/api/admin/key-requests').catch(err => console.error("Redis DEL error:", err));
+      await redisClient.del('__express__/api/admin/dashboard-stats').catch(err => console.error("Redis DEL error:", err));
+      console.log(`Redis cache for '/api/admin/key-requests' and '/api/admin/dashboard-stats' invalidated.`);
     }
     // --- END NEW ---
 
@@ -282,32 +282,32 @@ const adminFileFilter = (req, file, cb) => {
     cb(error, false);
   }
 };
-const adminUpload = multer({ storage: adminStorage, fileFilter: adminFileFilter, limits: { fileSize: MAX_FILE_SIZE }});
+const adminUpload = multer({ storage: adminStorage, fileFilter: adminFileFilter, limits: { fileSize: MAX_FILE_SIZE } });
 async function triggerPythonRagProcessingForAdmin(filePath, originalName) {
-    const pythonServiceUrl = process.env.PYTHON_RAG_SERVICE_URL;
-    if (!pythonServiceUrl) {
-        return { success: false, message: "Python service URL not configured.", text: null, chunksForKg: [] };
-    }
-    const addDocumentUrl = `${pythonServiceUrl}/add_document`;
-    try {
-        const response = await axios.post(addDocumentUrl, {
-            user_id: "admin",
-            file_path: filePath, original_name: originalName
-        }, { timeout: 300000 });
-        
-        const text = response.data?.raw_text_for_analysis || null;
-        const chunksForKg = response.data?.chunks_with_metadata || [];
-        const isSuccess = !!(text && text.trim());
-        return { 
-            success: isSuccess, 
-            message: response.data?.message || "Python RAG service call completed.", 
-            text: text,
-            chunksForKg: chunksForKg
-        };
-    } catch (error) {
-        const errorMsg = error.response?.data?.error || error.message || "Unknown error calling Python RAG.";
-        return { success: false, message: `Python RAG call failed: ${errorMsg}`, text: null, chunksForKg: [] };
-    }
+  const pythonServiceUrl = process.env.PYTHON_RAG_SERVICE_URL;
+  if (!pythonServiceUrl) {
+    return { success: false, message: "Python service URL not configured.", text: null, chunksForKg: [] };
+  }
+  const addDocumentUrl = `${pythonServiceUrl}/add_document`;
+  try {
+    const response = await axios.post(addDocumentUrl, {
+      user_id: "admin",
+      file_path: filePath, original_name: originalName
+    }, { timeout: 300000 });
+
+    const text = response.data?.raw_text_for_analysis || null;
+    const chunksForKg = response.data?.chunks_with_metadata || [];
+    const isSuccess = !!(text && text.trim());
+    return {
+      success: isSuccess,
+      message: response.data?.message || "Python RAG service call completed.",
+      text: text,
+      chunksForKg: chunksForKg
+    };
+  } catch (error) {
+    const errorMsg = error.response?.data?.error || error.message || "Unknown error calling Python RAG.";
+    return { success: false, message: `Python RAG call failed: ${errorMsg}`, text: null, chunksForKg: [] };
+  }
 }
 async function callPythonDeletionEndpoint(
   method,
@@ -369,23 +369,23 @@ router.post(
       }
 
       adminDocRecord = new AdminDocument({
-      filename: serverFilename,
-      originalName: originalName,
-      text: ragResult.text,
-    });
-    await adminDocRecord.save();
-    await fsPromises.unlink(tempServerPath);
+        filename: serverFilename,
+        originalName: originalName,
+        text: ragResult.text,
+      });
+      await adminDocRecord.save();
+      await fsPromises.unlink(tempServerPath);
 
-    // --- ADDED AUDIT LOG ---
-    auditLog(req, 'ADMIN_DOCUMENT_UPLOAD_SUCCESS', {
+      // --- ADDED AUDIT LOG ---
+      auditLog(req, 'ADMIN_DOCUMENT_UPLOAD_SUCCESS', {
         originalName: originalName,
         serverFilename: serverFilename
-    });
-    // --- END ---
+      });
+      // --- END ---
 
-    res.status(202).json({
-      message: `Admin document '${originalName}' uploaded. Background processing initiated.`,
-    });
+      res.status(202).json({
+        message: `Admin document '${originalName}' uploaded. Background processing initiated.`,
+      });
 
       const { Worker } = require("worker_threads");
       const analysisWorker = new Worker(
@@ -432,13 +432,12 @@ router.post(
       }
     } catch (error) {
       console.error(
-        `Admin Upload: Overall error for '${
-          originalName || req.file?.originalname
+        `Admin Upload: Overall error for '${originalName || req.file?.originalname
         }':`,
         error
       );
       if (tempServerPath && fs.existsSync(tempServerPath))
-        await fsPromises.unlink(tempServerPath).catch(() => {});
+        await fsPromises.unlink(tempServerPath).catch(() => { });
       if (!res.headersSent) {
         res
           .status(500)
@@ -449,21 +448,21 @@ router.post(
 );
 
 // @route   GET /api/admin/documents
-router.get('/documents',cacheMiddleware(CACHE_DURATION_SECONDS), async (req, res) => {
-    try {
-        const adminDocs = await AdminDocument.find().sort({ uploadedAt: -1 })
-            .select('originalName filename uploadedAt analysisUpdatedAt analysis.faq analysis.topics analysis.mindmap');
-        const documentsList = adminDocs.map(doc => ({
-            originalName: doc.originalName, serverFilename: doc.filename, uploadedAt: doc.uploadedAt,
-            analysisUpdatedAt: doc.analysisUpdatedAt,
-            hasFaq: !!(doc.analysis?.faq?.trim()),
-            hasTopics: !!(doc.analysis?.topics?.trim()),
-            hasMindmap: !!(doc.analysis?.mindmap?.trim()),
-        }));
-        res.json({ documents: documentsList });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error fetching admin documents.' });
-    }
+router.get('/documents', cacheMiddleware(CACHE_DURATION_SECONDS), async (req, res) => {
+  try {
+    const adminDocs = await AdminDocument.find().sort({ uploadedAt: -1 })
+      .select('originalName filename uploadedAt analysisUpdatedAt analysis.faq analysis.topics analysis.mindmap');
+    const documentsList = adminDocs.map(doc => ({
+      originalName: doc.originalName, serverFilename: doc.filename, uploadedAt: doc.uploadedAt,
+      analysisUpdatedAt: doc.analysisUpdatedAt,
+      hasFaq: !!(doc.analysis?.faq?.trim()),
+      hasTopics: !!(doc.analysis?.topics?.trim()),
+      hasMindmap: !!(doc.analysis?.mindmap?.trim()),
+    }));
+    res.json({ documents: documentsList });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error fetching admin documents.' });
+  }
 });
 
 // @route   DELETE /api/admin/documents/:serverFilename
@@ -500,8 +499,8 @@ router.delete("/documents/:serverFilename", async (req, res) => {
     await AdminDocument.deleteOne({ _id: docToDelete._id });
 
     auditLog(req, 'ADMIN_DOCUMENT_DELETE_SUCCESS', {
-        originalName: originalName,
-        serverFilename: serverFilename
+      originalName: originalName,
+      serverFilename: serverFilename
     });
 
     res
@@ -584,64 +583,123 @@ router.get(
 
 // @route   GET /api/admin/users-with-chats
 // @desc    Get all users and their chat session summaries
-router.get('/users-with-chats',cacheMiddleware(CACHE_DURATION_SECONDS), async (req, res) => {
-    try {
-        const allHistories = await ChatHistory.find({})
-            .populate('userId', 'email profile.name')
-            .sort({ updatedAt: -1 })
-            .lean();
+router.get('/users-with-chats', cacheMiddleware(CACHE_DURATION_SECONDS), async (req, res) => {
+  try {
+    const allHistories = await ChatHistory.find({})
+      .populate('userId', 'email profile.name')
+      .sort({ updatedAt: -1 })
+      .lean();
 
-        const usersMap = new Map();
+    const usersMap = new Map();
 
-        for (const session of allHistories) {
-            if (!session.userId) continue;
+    for (const session of allHistories) {
+      if (!session.userId) continue;
 
-            const userId = session.userId._id.toString();
+      const userId = session.userId._id.toString();
 
-            if (!usersMap.has(userId)) {
-                usersMap.set(userId, {
-                    user: {
-                        _id: userId,
-                        email: session.userId.email,
-                        name: session.userId.profile?.name || 'N/A'
-                    },
-                    sessions: []
-                });
-            }
+      if (!usersMap.has(userId)) {
+        usersMap.set(userId, {
+          user: {
+            _id: userId,
+            email: session.userId.email,
+            name: session.userId.profile?.name || 'N/A'
+          },
+          sessions: []
+        });
+      }
 
-            const userEntry = usersMap.get(userId);
-            userEntry.sessions.push({
-                sessionId: session.sessionId,
-                updatedAt: session.updatedAt,
-                summary: session.summary || 'No summary available.',
-                messageCount: session.messages?.length || 0
-            });
-        }
-
-        res.json(Array.from(usersMap.values()));
-
-    } catch (error) {
-        console.error('Error fetching users with chat summaries:', error);
-        res.status(500).json({ message: 'Server error while fetching user chat data.' });
+      const userEntry = usersMap.get(userId);
+      userEntry.sessions.push({
+        sessionId: session.sessionId,
+        updatedAt: session.updatedAt,
+        summary: session.summary || 'No summary available.',
+        messageCount: session.messages?.length || 0
+      });
     }
+
+    res.json(Array.from(usersMap.values()));
+
+  } catch (error) {
+    console.error('Error fetching users with chat summaries:', error);
+    res.status(500).json({ message: 'Server error while fetching user chat data.' });
+  }
 });
 
 
 // @route   GET /api/admin/negative-feedback
 // @desc    Get all log entries with negative feedback
 router.get('/negative-feedback', async (req, res) => {
-    try {
-        const negativeFeedback = await LLMPerformanceLog.find({ userFeedback: 'negative' })
-            .populate('userId', 'email') // Optionally get user email
-            .sort({ createdAt: -1 })
-            .limit(100); // Limit to the last 100 to prevent performance issues
+  try {
+    const negativeFeedback = await LLMPerformanceLog.find({ userFeedback: 'negative' })
+      .populate('userId', 'email') // Optionally get user email
+      .sort({ createdAt: -1 })
+      .limit(100); // Limit to the last 100 to prevent performance issues
 
-        res.json(negativeFeedback);
-    } catch (error) {
-        console.error('Error fetching negative feedback logs:', error);
-        res.status(500).json({ message: 'Server error while fetching negative feedback.' });
-    }
+    res.json(negativeFeedback);
+  } catch (error) {
+    console.error('Error fetching negative feedback logs:', error);
+    res.status(500).json({ message: 'Server error while fetching negative feedback.' });
+  }
 });
 
+
+// @route   GET /api/admin/users
+// @desc    Get all users with profile and gamification stats
+router.get('/users', cacheMiddleware(CACHE_DURATION_SECONDS), async (req, res) => {
+  try {
+    const users = await User.find({})
+      .select('email username profile.name profile.learningCredits profile.bloomScore profile.activeBounties hasCompletedOnboarding createdAt')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Transform for frontend if needed, or send as is
+    res.json(users);
+  } catch (error) {
+    console.error('Error fetching all users:', error);
+    res.status(500).json({ message: 'Server error while fetching users.' });
+  }
+});
+
+// @route   POST /api/admin/bounties/global
+// @desc    Create a bounty for ALL users
+router.post('/bounties/global', async (req, res) => {
+  const { question, topic, difficulty, reward } = req.body;
+
+  // Basic validation
+  if (!question || !topic) {
+    return res.status(400).json({ message: "Question and Topic are required." });
+  }
+
+  try {
+    // Construct the bounty object. Note: Mongoose will generate _id for subdocs if defined in schema.
+    // But since we are pushing raw objects to many users, let's let Mongoose handle it or standard update.
+    const newBounty = {
+      question,
+      topic,
+      difficulty: difficulty || 'medium',
+      reward: reward || 50,
+      status: 'active',
+      createdAt: new Date()
+    };
+
+    // Update ALL users
+    const result = await User.updateMany(
+      {},
+      { $push: { 'profile.activeBounties': newBounty } }
+    );
+
+    auditLog(req, 'ADMIN_GLOBAL_BOUNTY_CREATED', {
+      question, topic, reward, affectedUsers: result.modifiedCount
+    });
+
+    res.json({
+      message: `Global bounty created successfully. Added to ${result.modifiedCount} users.`,
+      bounty: newBounty
+    });
+  } catch (error) {
+    console.error('Error creating global bounty:', error);
+    res.status(500).json({ message: 'Server error while creating global bounty.' });
+  }
+});
 
 module.exports = router;

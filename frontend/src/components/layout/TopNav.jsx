@@ -5,20 +5,20 @@ import ThemeToggle from '../common/ThemeToggle.jsx';
 import LLMSelectionModal from './LLMSelectionModal.jsx';
 import ProfileSettingsModal from '../profile/ProfileSettingsModal.jsx';
 import { Link } from 'react-router-dom';
-import { 
-    LogOut, User, MessageSquare, History as HistoryIcon, Settings, Cpu, Zap, ServerCrash, Server, Wrench, GraduationCap 
+import {
+    LogOut, User, MessageSquare, History as HistoryIcon, Settings, Cpu, Zap, ServerCrash, Server, Wrench, GraduationCap
 } from 'lucide-react';
-import ToolsModal from '../tools/ToolsModal.jsx'; 
+import ToolsModal from '../tools/ToolsModal.jsx';
 
 
 
-function TopNav({ user: authUser, onLogout, onNewChat, onHistoryClick, orchestratorStatus, isChatProcessing  }) {
+function TopNav({ user: authUser, onLogout, onNewChat, onHistoryClick, orchestratorStatus, isChatProcessing }) {
     const { selectedLLM, switchLLM } = useAppState();
     const [isLLMModalOpen, setIsLLMModalOpen] = useState(false);
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
     const [isToolsModalOpen, setIsToolsModalOpen] = useState(false); // <<< NEW STATE
 
-    
+
     const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
     const profileDropdownRef = useRef(null);
 
@@ -32,7 +32,7 @@ function TopNav({ user: authUser, onLogout, onNewChat, onHistoryClick, orchestra
             return <ServerCrash size={18} className="text-red-400" title={`Backend Offline: ${orchestratorStatus.message}`} />;
         }
     };
-    
+
     useEffect(() => {
         function handleClickOutside(event) {
             if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
@@ -57,7 +57,7 @@ function TopNav({ user: authUser, onLogout, onNewChat, onHistoryClick, orchestra
 
                 <div className="flex-1 flex justify-center px-2">
                     <div className="flex items-center gap-1 sm:gap-2">
-                         <button
+                        <button
                             onClick={onNewChat}
                             className={`flex items-center gap-1 px-2 py-1.5 text-xs sm:text-sm font-medium rounded-md text-sky-700 dark:text-sky-300 bg-sky-500/10 dark:bg-sky-500/20 hover:bg-sky-500/20 dark:hover:bg-sky-500/30 transition-colors ${isChatProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
                             disabled={isChatProcessing}
@@ -65,7 +65,7 @@ function TopNav({ user: authUser, onLogout, onNewChat, onHistoryClick, orchestra
                         >
                             <MessageSquare size={14} /> <span className="hidden sm:inline">New Chat</span>
                         </button>
-                        
+
                         <button
                             onClick={onHistoryClick}
                             className={`flex items-center gap-1 px-2 py-1.5 text-xs sm:text-sm font-medium rounded-md text-teal-700 dark:text-teal-300 bg-teal-500/10 dark:bg-teal-500/20 hover:bg-teal-500/20 dark:hover:bg-teal-500/30 transition-colors ${isChatProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -75,7 +75,7 @@ function TopNav({ user: authUser, onLogout, onNewChat, onHistoryClick, orchestra
                             <HistoryIcon size={14} /> <span className="hidden sm:inline">History</span>
                         </button>
 
-                         <Link
+                        <Link
                             to="/study-plan"
                             className={`flex items-center gap-1 px-2 py-1.5 text-xs sm:text-sm font-medium rounded-md text-indigo-700 dark:text-indigo-300 bg-indigo-500/10 dark:bg-indigo-500/20 hover:bg-indigo-500/20 dark:hover:bg-indigo-500/30 transition-colors ${isChatProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
                             onClick={(e) => isChatProcessing && e.preventDefault()}
@@ -109,30 +109,37 @@ function TopNav({ user: authUser, onLogout, onNewChat, onHistoryClick, orchestra
                     <div className="w-8 h-8 flex items-center justify-center">
                         {getStatusIndicator()}
                     </div>
-                    <ThemeToggle disabled={isChatProcessing}/>
+                    <ThemeToggle disabled={isChatProcessing} />
                     <div className="relative" ref={profileDropdownRef}>
-                        <button 
+                        <button
                             onClick={() => setIsProfileDropdownOpen(prev => !prev)}
                             className="p-1.5 bg-primary-light dark:bg-primary-dark text-white rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-surface-light dark:focus:ring-offset-surface-dark focus:ring-primary"
                         >
                             <User size={18} />
                         </button>
-                        <div 
+                        <div
                             className={`absolute right-0 mt-2 w-48 bg-surface-light dark:bg-surface-dark rounded-md shadow-lg py-1 transition-all duration-150 ease-in-out transform origin-top-right z-50
-                                ${isProfileDropdownOpen 
-                                    ? 'opacity-100 scale-100 visible' 
+                                ${isProfileDropdownOpen
+                                    ? 'opacity-100 scale-100 visible'
                                     : 'opacity-0 scale-95 invisible'
                                 }`
                             }
                         >
                             <div className="px-4 py-2 text-sm text-text-light dark:text-text-dark border-b border-border-light dark:border-border-dark">
-                                Signed in as <br/><strong>{authUser?.username || 'User'}</strong>
+                                Signed in as <br /><strong>{authUser?.username || 'User'}</strong>
                             </div>
+                            <Link
+                                to="/profile"
+                                onClick={() => { setIsProfileDropdownOpen(false); }}
+                                className="w-full text-left px-4 py-2 text-sm text-text-light dark:text-text-dark hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                            >
+                                <User size={16} /> Profile
+                            </Link>
                             <button
                                 onClick={() => { setIsProfileModalOpen(true); setIsProfileDropdownOpen(false); }}
                                 className="w-full text-left px-4 py-2 text-sm text-text-light dark:text-text-dark hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                             >
-                                <Settings size={16} /> Profile
+                                <Settings size={16} /> API Settings
                             </button>
                             <button
                                 onClick={() => { onLogout(); setIsProfileDropdownOpen(false); }}
@@ -144,9 +151,9 @@ function TopNav({ user: authUser, onLogout, onNewChat, onHistoryClick, orchestra
                     </div>
                 </div>
             </nav>
-            <LLMSelectionModal 
-                isOpen={isLLMModalOpen} 
-                onClose={() => setIsLLMModalOpen(false)} 
+            <LLMSelectionModal
+                isOpen={isLLMModalOpen}
+                onClose={() => setIsLLMModalOpen(false)}
                 currentLLM={selectedLLM}
                 onSelectLLM={(llm) => {
                     switchLLM(llm);
@@ -158,9 +165,9 @@ function TopNav({ user: authUser, onLogout, onNewChat, onHistoryClick, orchestra
                 onClose={() => setIsProfileModalOpen(false)}
             />
             {/* The ToolsModal is now correctly managed here */}
-            <ToolsModal 
-                isOpen={isToolsModalOpen} 
-                onClose={() => setIsToolsModalOpen(false)} 
+            <ToolsModal
+                isOpen={isToolsModalOpen}
+                onClose={() => setIsToolsModalOpen(false)}
             />
         </>
     );

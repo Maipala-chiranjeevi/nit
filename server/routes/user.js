@@ -11,10 +11,10 @@ router.get('/profile', async (req, res) => {
         if (!user) {
             return res.status(404).json({ message: 'User not found.' });
         }
-        
+
         const profileData = user.profile ? user.profile.toObject() : {};
         profileData.hasCompletedOnboarding = user.hasCompletedOnboarding;
-        
+
         res.json(profileData);
     } catch (error) {
         console.error('Error fetching user profile:', error);
@@ -47,11 +47,11 @@ router.put('/profile', async (req, res) => {
         };
 
         await user.save();
-        
+
         auditLog(req, 'USER_PROFILE_UPDATE_SUCCESS', {
             updatedFields: Object.keys(req.body) // Log which fields were included in the update
         });
-        
+
         if (redisClient && redisClient.isOpen) {
             const cacheKey = `user:${req.user._id}`;
             await redisClient.del(cacheKey);
@@ -65,6 +65,42 @@ router.put('/profile', async (req, res) => {
     } catch (error) {
         console.error('Error updating user profile:', error);
         res.status(500).json({ message: 'Server error while updating profile.' });
+    }
+});
+
+router.post('/bounties/claim', async (req, res) => {
+    const { bountyId, answer } = req.body; // In a real app, 'answer' would be graded.
+
+    try {
+        const user = await User.findById(req.user._id);
+        if (!user) return res.status(404).json({ message: 'User not found.' });
+
+        const bounty = user.profile.activeBounties.id(bountyId);
+        if (!bounty) {
+            return res.status(404).json({ message: 'Bounty not found.' });
+        }
+
+        if (bounty.status === 'completed') {
+            return res.status(400).json({ message: 'Bounty already completed.' });
+        }
+
+        // Logic to verify answer could go here (e.g., using LLM to grade).
+        // For this implementation, we assume if they claim it, they did it (or client validated).
+
+        bounty.status = 'completed';
+        user.profile.learningCredits += bounty.reward;
+
+        await user.save();
+
+        res.json({
+            message: 'Bounty claimed!',
+            credits: user.profile.learningCredits,
+            bountyId: bounty._id
+        });
+
+    } catch (error) {
+        console.error('Error claiming bounty:', error);
+        res.status(500).json({ message: 'Server error claiming bounty.' });
     }
 });
 

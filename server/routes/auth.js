@@ -93,7 +93,7 @@ router.post('/send-otp', async (req, res) => {
 
         const otp = otpGenerator.generate(6, { upperCaseAlphabets: false, specialChars: false, lowerCaseAlphabets: false });
         const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
-        
+
         // We temporarily store the hashed password and OTP. The user is not yet "fully" created.
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
@@ -101,7 +101,7 @@ router.post('/send-otp', async (req, res) => {
         // Use findOneAndUpdate with upsert to create a temporary user record or update an existing one.
         await User.findOneAndUpdate(
             { email },
-            { 
+            {
                 email,
                 password: hashedPassword,
                 username: email.split('@')[0] + uuidv4().substring(0, 4), // Temporary username
@@ -149,7 +149,7 @@ router.post('/signin', async (req, res) => {
 
         if (user.isAdmin) {
             auditLog(req, 'ADMIN_LOGIN_SUCCESS', { email: user.email });
-            
+
             const payload = { userId: user._id, email: user.email, isAdmin: true };
             const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRATION });
 
@@ -159,7 +159,7 @@ router.post('/signin', async (req, res) => {
                 message: 'Admin login successful',
             });
         }
-        
+
         auditLog(req, 'USER_LOGIN_SUCCESS', { email: user.email });
 
         const payload = { userId: user._id, email: user.email, isAdmin: false };
@@ -181,15 +181,16 @@ router.post('/signin', async (req, res) => {
 });
 
 router.get('/me', authMiddleware, async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ message: 'Not authorized.' });
-  }
-  res.status(200).json({
-    _id: req.user._id,
-    email: req.user.email,
-    username: req.user.username,
-    hasCompletedOnboarding: req.user.hasCompletedOnboarding
-  });
+    if (!req.user) {
+        return res.status(401).json({ message: 'Not authorized.' });
+    }
+    res.status(200).json({
+        _id: req.user._id,
+        email: req.user.email,
+        username: req.user.username,
+        hasCompletedOnboarding: req.user.hasCompletedOnboarding,
+        profile: req.user.profile // Include profile for gamification data
+    });
 });
 
 router.post('/complete-onboarding', authMiddleware, async (req, res) => {

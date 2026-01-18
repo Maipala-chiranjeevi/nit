@@ -9,6 +9,8 @@ const LLMPerformanceLogSchema = new mongoose.Schema({
   chosenModelId: { type: String, required: true },
   routerLogic: { type: String },
   responseTimeMs: { type: Number },
+  bloomLevel: { type: String, enum: ['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create', 'N/A'], default: 'N/A' },
+  bloomScore: { type: Number, default: 0 }, // Numeric 1-6 representation
   userFeedback: { type: String, enum: ['positive', 'negative', 'none'], default: 'none' },
   createdAt: { type: Date, default: Date.now },
 });

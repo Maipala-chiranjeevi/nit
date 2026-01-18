@@ -18,13 +18,13 @@ const adminApiClient = axios.create({
 export const getFixedAdminAuthHeaders = () => {
     // Admin and regular user tokens are stored with the same key now.
     const token = localStorage.getItem('authToken');
-    
+
     if (!token) {
         console.error("Admin action requires a login token, but none was found.");
         // This will likely cause a 401 error, which is what we want.
-        return {}; 
+        return {};
     }
-    
+
     return { 'Authorization': `Bearer ${token}` };
 };
 
@@ -127,4 +127,6 @@ export const startFineTuningJob = (payload) => {
     // The endpoint is relative to /api/admin, so we just need /finetuning/start
     return makeAdminApiRequest('post', '/finetuning/start', payload);
 };
-    
+
+export const getAllUsers = () => makeAdminApiRequest('get', '/users');
+export const createGlobalBounty = (data) => makeAdminApiRequest('post', '/bounties/global', data);

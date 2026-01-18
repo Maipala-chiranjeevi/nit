@@ -11,17 +11,20 @@ import ApiKeyRequestManager from './ApiKeyRequestManager.jsx';
 import UserChatManager from './UserChatManager.jsx';
 import AdminInsights from './AdminInsights.jsx';
 import LLMConfigManager from './LLMConfigManager.jsx';
-import ModelFeedbackStats from './ModelFeedbackStats.jsx'; 
-import DatasetManager from './DatasetManager.jsx'; // <<< NEW IMPORT
+import ModelFeedbackStats from './ModelFeedbackStats.jsx';
+import DatasetManager from './DatasetManager.jsx';
+import GlobalBountyModal from './GlobalBountyModal.jsx';
+import AdminUserList from './AdminUserList.jsx'; // We will create this next
 
-import { UploadCloud, Trash2, Eye, LogOut, Loader2, AlertTriangle, CheckCircle, RefreshCw, Shield, Users, Lightbulb, HelpCircle, Cog, Database, BarChart2  } from 'lucide-react'; // <<< ADDED Database ICON
+
+import { UploadCloud, Trash2, Eye, LogOut, Loader2, AlertTriangle, CheckCircle, RefreshCw, Shield, Users, Lightbulb, HelpCircle, Cog, Database, BarChart2, Target } from 'lucide-react'; // <<< ADDED Database ICON
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
 // Helper functions
-const localParseAnalysisOutput = (rawOutput) => { 
+const localParseAnalysisOutput = (rawOutput) => {
     if (!rawOutput || typeof rawOutput !== 'string') return { content: '' };
     const thinkingMatch = rawOutput.match(/<thinking>([\s\S]*?)<\/thinking>/i);
     let mainContent = rawOutput;
@@ -30,7 +33,7 @@ const localParseAnalysisOutput = (rawOutput) => {
     }
     return { content: mainContent };
 };
-const createMarkup = (markdownText) => { 
+const createMarkup = (markdownText) => {
     if (!markdownText) return { __html: '' };
     const html = marked.parse(markdownText);
     const cleanHtml = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
@@ -94,10 +97,11 @@ function AdminDashboardPage() {
     const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
     const [isUserChatsModalOpen, setIsUserChatsModalOpen] = useState(false);
     const [isLlmModalOpen, setIsLlmModalOpen] = useState(false);
-    const [isDatasetModalOpen, setIsDatasetModalOpen] = useState(false); // <<< NEW STATE for Dataset Modal
+    const [isDatasetModalOpen, setIsDatasetModalOpen] = useState(false);
+    const [isGlobalBountyModalOpen, setIsGlobalBountyModalOpen] = useState(false); // New State
     const [showDeleteDocModal, setShowDeleteDocModal] = useState(false);
-    const [docToDelete, setDocToDelete] = useState(null); 
-    
+    const [docToDelete, setDocToDelete] = useState(null);
+
 
     const adminLogoutHandler = () => {
         setIsAdminSessionActive(false);
@@ -115,7 +119,7 @@ function AdminDashboardPage() {
             setIsInitialLoading(true);
         }
         setLoadingError('');
-        
+
         try {
             const authHeaders = adminApi.getFixedAdminAuthHeaders();
             const [docsResponse, requestsResponse, usersResponse, statsResponse] = await Promise.all([
@@ -162,7 +166,7 @@ function AdminDashboardPage() {
             setDocToDelete(null);
         }
     };
-    
+
     const handleViewAnalysis = async (doc) => {
         setCurrentDocForModal(doc);
         setAnalysisContent(null);
@@ -179,7 +183,7 @@ function AdminDashboardPage() {
             setIsLoadingAnalysis(false);
         }
     };
-    
+
     const renderAnalysisModalContent = () => {
         if (isLoadingAnalysis) {
             return (
@@ -198,8 +202,8 @@ function AdminDashboardPage() {
         }
         return (
             <div className="prose prose-sm dark:prose-invert max-w-none text-text-light dark:text-text-dark space-y-6 p-1 custom-scrollbar">
-                {analysisContent.faq?.trim() && ( <div><h3 className="text-base font-semibold border-b border-border-light dark:border-border-dark pb-1 mb-2">Frequently Asked Questions</h3><div dangerouslySetInnerHTML={createMarkup(localParseAnalysisOutput(analysisContent.faq).content)} /></div>)}
-                {analysisContent.topics?.trim() && ( <div><h3 className="text-base font-semibold border-b border-border-light dark:border-border-dark pb-1 mb-2">Key Topics</h3><div dangerouslySetInnerHTML={createMarkup(localParseAnalysisOutput(analysisContent.topics).content)} /></div>)}
+                {analysisContent.faq?.trim() && (<div><h3 className="text-base font-semibold border-b border-border-light dark:border-border-dark pb-1 mb-2">Frequently Asked Questions</h3><div dangerouslySetInnerHTML={createMarkup(localParseAnalysisOutput(analysisContent.faq).content)} /></div>)}
+                {analysisContent.topics?.trim() && (<div><h3 className="text-base font-semibold border-b border-border-light dark:border-border-dark pb-1 mb-2">Key Topics</h3><div dangerouslySetInnerHTML={createMarkup(localParseAnalysisOutput(analysisContent.topics).content)} /></div>)}
                 {analysisContent.mindmap?.trim() && (<div><h3 className="text-base font-semibold border-b border-border-light dark:border-border-dark pb-1 mb-2">Mind Map (Mermaid Code)</h3><pre className="bg-gray-100 dark:bg-gray-800 p-2 rounded-md text-xs whitespace-pre-wrap overflow-x-auto custom-scrollbar"><code>{localParseAnalysisOutput(analysisContent.mindmap).content}</code></pre></div>)}
             </div>
         );
@@ -210,13 +214,14 @@ function AdminDashboardPage() {
             <header className="flex-shrink-0 flex items-center justify-between p-4 sm:p-6 border-b border-border-light dark:border-border-dark">
                 <h1 className="text-2xl font-bold">Professor's Dashboard</h1>
                 <div className="flex items-center gap-2">
-                    <IconButton icon={RefreshCw} onClick={() => fetchAdminData(true)} title="Refresh Admin Data" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary"/>
-                    <IconButton icon={BarChart2} onClick={() => navigate('/admin/analytics')} title="Platform Analytics" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary"/>
-                    <IconButton icon={Shield} onClick={() => setIsSecurityModalOpen(true)} title="Security Center & API Requests" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary"/>
-                    <IconButton icon={Users} onClick={() => setIsUserChatsModalOpen(true)} title="User Management & Chats" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary"/>
-                    <IconButton icon={Database} onClick={() => setIsDatasetModalOpen(true)} title="Dataset Management" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary"/>
-                    <IconButton icon={Cog} onClick={() => setIsLlmModalOpen(true)} title="LLM Configuration" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary"/>
-                    <Button onClick={adminLogoutHandler} variant="danger" size="sm" leftIcon={<LogOut size={16}/>}> Logout Admin </Button>
+                    <IconButton icon={RefreshCw} onClick={() => fetchAdminData(true)} title="Refresh Admin Data" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary" />
+                    <IconButton icon={BarChart2} onClick={() => navigate('/admin/analytics')} title="Platform Analytics" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary" />
+                    <IconButton icon={Shield} onClick={() => setIsSecurityModalOpen(true)} title="Security Center & API Requests" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary" />
+                    <IconButton icon={Users} onClick={() => setIsUserChatsModalOpen(true)} title="User Management & Chats" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary" />
+                    <IconButton icon={Target} onClick={() => setIsGlobalBountyModalOpen(true)} title="Broadcast Global Bounty" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-accent" />
+                    <IconButton icon={Database} onClick={() => setIsDatasetModalOpen(true)} title="Dataset Management" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary" />
+                    <IconButton icon={Cog} onClick={() => setIsLlmModalOpen(true)} title="LLM Configuration" variant="ghost" size="md" className="text-text-muted-light dark:text-text-muted-dark hover:text-primary" />
+                    <Button onClick={adminLogoutHandler} variant="danger" size="sm" leftIcon={<LogOut size={16} />}> Logout Admin </Button>
                 </div>
             </header>
 
@@ -231,9 +236,9 @@ function AdminDashboardPage() {
 
                         <div className="card-base p-0 sm:p-4">
                             <h2 className="text-lg font-semibold mb-3 text-text-light dark:text-text-dark px-4 sm:px-0 pt-4 sm:pt-0">Uploaded Subject Documents</h2>
-                            {isInitialLoading && !documents.length && ( <div className="flex items-center justify-center p-6"> <Loader2 size={24} className="animate-spin text-primary mr-2" /> Loading documents... </div> )}
-                            {loadingError && !documents.length && ( <div className="p-3 my-3 mx-4 sm:mx-0 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-300 rounded-md text-sm flex items-center gap-2"> <AlertTriangle size={18} /> {loadingError} <button onClick={() => fetchAdminData(true)} className="ml-auto text-xs underline hover:text-red-400">Retry</button> </div> )}
-                            {!isInitialLoading && documents.length === 0 && !loadingError && ( <p className="text-center text-sm text-text-muted-light dark:text-text-muted-dark py-6 px-4 sm:px-0"> No subject documents uploaded yet. </p> )}
+                            {isInitialLoading && !documents.length && (<div className="flex items-center justify-center p-6"> <Loader2 size={24} className="animate-spin text-primary mr-2" /> Loading documents... </div>)}
+                            {loadingError && !documents.length && (<div className="p-3 my-3 mx-4 sm:mx-0 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-300 rounded-md text-sm flex items-center gap-2"> <AlertTriangle size={18} /> {loadingError} <button onClick={() => fetchAdminData(true)} className="ml-auto text-xs underline hover:text-red-400">Retry</button> </div>)}
+                            {!isInitialLoading && documents.length === 0 && !loadingError && (<p className="text-center text-sm text-text-muted-light dark:text-text-muted-dark py-6 px-4 sm:px-0"> No subject documents uploaded yet. </p>)}
                             {documents.length > 0 && (
                                 <div className="overflow-x-auto custom-scrollbar">
                                     <table className="w-full text-sm text-left">
@@ -250,11 +255,11 @@ function AdminDashboardPage() {
                                                 <tr key={doc.serverFilename} className="border-b border-border-light dark:border-border-dark hover:bg-gray-50/50 dark:hover:bg-gray-700/30 transition-colors">
                                                     <td className="px-3 sm:px-4 py-2 truncate max-w-[150px] sm:max-w-xs" title={doc.originalName}>{doc.originalName}</td>
                                                     <td className="px-3 sm:px-4 py-2 whitespace-nowrap hidden md:table-cell"> {doc.uploadedAt ? format(new Date(doc.uploadedAt), 'MMM d, yyyy HH:mm') : 'N/A'} </td>
-                                                    <td className="px-3 sm:px-4 py-2"> {(doc.hasFaq || doc.hasTopics || doc.hasMindmap) ? ( <span className="flex items-center text-green-600 dark:text-green-400 text-xs"><CheckCircle size={14} className="mr-1"/> Generated</span> ) : (doc.analysisUpdatedAt ? <span className="text-gray-500 dark:text-gray-400 text-xs">Empty/Skipped</span> : <span className="text-yellow-500 dark:text-yellow-400 text-xs">Pending</span>)} </td>
+                                                    <td className="px-3 sm:px-4 py-2"> {(doc.hasFaq || doc.hasTopics || doc.hasMindmap) ? (<span className="flex items-center text-green-600 dark:text-green-400 text-xs"><CheckCircle size={14} className="mr-1" /> Generated</span>) : (doc.analysisUpdatedAt ? <span className="text-gray-500 dark:text-gray-400 text-xs">Empty/Skipped</span> : <span className="text-yellow-500 dark:text-yellow-400 text-xs">Pending</span>)} </td>
                                                     <td className="px-1 sm:px-4 py-2 text-center whitespace-nowrap">
                                                         <IconButton icon={Eye} title="View Analysis" size="sm" variant="ghost" className="text-primary hover:text-primary-dark mr-0.5 sm:mr-1" onClick={() => handleViewAnalysis(doc)} disabled={isLoadingAnalysis && currentDocForModal?.serverFilename === doc.serverFilename} />
-                                                        <IconButton icon={Trash2} title="Delete Document" size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => { setDocToDelete({ serverFilename: doc.serverFilename, originalName: doc.originalName }); setShowDeleteDocModal(true);  }} />                                                    </td>
-                                                </tr>    
+                                                        <IconButton icon={Trash2} title="Delete Document" size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => { setDocToDelete({ serverFilename: doc.serverFilename, originalName: doc.originalName }); setShowDeleteDocModal(true); }} />                                                    </td>
+                                                </tr>
                                             ))}
                                         </tbody>
                                     </table>
@@ -274,7 +279,7 @@ function AdminDashboardPage() {
                             </div>
                         </div>
                         <div className="card-base p-4">
-                             <h2 className="text-lg font-semibold mb-3 text-text-light dark:text-text-dark flex items-center gap-2">
+                            <h2 className="text-lg font-semibold mb-3 text-text-light dark:text-text-dark flex items-center gap-2">
                                 <Lightbulb size={20} className="text-accent" /> Frequently Asked Topics
                             </h2>
                             <div className="text-center py-8 px-4 border-2 border-dashed border-border-light dark:border-border-dark rounded-lg">
@@ -293,12 +298,15 @@ function AdminDashboardPage() {
             <Modal isOpen={isSecurityModalOpen} onClose={() => setIsSecurityModalOpen(false)} title="Security Center" size="3xl">
                 {isInitialLoading ? (
                     <div className="flex justify-center items-center p-8"> <Loader2 size={24} className="animate-spin text-primary inline-block mr-2" /> Loading Security Data... </div>
-                ) : ( <ApiKeyRequestManager requests={keyRequests} onAction={() => fetchAdminData(true)} /> )}
+                ) : (<ApiKeyRequestManager requests={keyRequests} onAction={() => fetchAdminData(true)} />)}
             </Modal>
-            <Modal isOpen={isUserChatsModalOpen} onClose={() => setIsUserChatsModalOpen(false)} title="User Session Summaries" size="4xl">
+            <Modal isOpen={isUserChatsModalOpen} onClose={() => setIsUserChatsModalOpen(false)} title="Student Management" size="5xl">
                 {isInitialLoading ? (
-                     <div className="flex justify-center items-center p-8"> <Loader2 size={24} className="animate-spin text-primary inline-block mr-2" /> Loading User Chat Data... </div>
-                ) : ( <UserChatManager usersWithChats={usersWithChats} /> )}
+                    <div className="flex justify-center items-center p-8"> <Loader2 size={24} className="animate-spin text-primary inline-block mr-2" /> Loading User Data... </div>
+                ) : (<AdminUserList />)}
+            </Modal>
+            <Modal isOpen={isGlobalBountyModalOpen} onClose={() => setIsGlobalBountyModalOpen(false)} title="Create Global Bounty" size="xl">
+                <GlobalBountyModal onClose={() => setIsGlobalBountyModalOpen(false)} />
             </Modal>
             <Modal isOpen={isLlmModalOpen} onClose={() => setIsLlmModalOpen(false)} title="LLM Configuration Management" size="4xl">
                 <LLMConfigManager />

@@ -15,6 +15,7 @@ const { extractAndStoreKgFromText } = require('../services/kgExtractionService')
 const { logger } = require('../utils/logger');
 const { auditLog } = require('../utils/logger');
 const { selectLLM } = require('../services/llmRouterService');
+const { classifyQuery, updateBloomScore } = require('../services/gamificationService');
 const LLMPerformanceLog = require('../models/LLMPerformanceLog');
 const router = express.Router();
 
@@ -51,7 +52,7 @@ router.post('/message', async (req, res) => {
         systemPrompt: clientProvidedSystemInstruction, criticalThinkingEnabled,
         documentContextName, filter
     } = req.body;
-    
+
     const userId = req.user._id;
 
     auditLog(req, 'CHAT_MESSAGE_SENT', {
@@ -75,12 +76,23 @@ router.post('/message', async (req, res) => {
     console.log(`>>> POST /api/chat/message: User=${userId}, Session=${sessionId}, CriticalThinking=${criticalThinkingEnabled}, Query: "${query.substring(0, 50)}..."`);
     const startTime = Date.now();
 
+    // [GAMIFICATION] Asynchronously process Bloom's Taxonomy scoring
+    (async () => {
+        try {
+            const level = await classifyQuery(query);
+            await updateBloomScore(userId, level);
+            // Optionally log this specific classification if needed, but it's aggregated in User profile
+        } catch (err) {
+            console.error("[Gamification] Error processing Bloom score:", err);
+        }
+    })();
+
     try {
         const [chatSession, user] = await Promise.all([
             ChatHistory.findOne({ sessionId: sessionId, userId: userId }),
             User.findById(userId).select('+encryptedApiKey preferredLlmProvider ollamaModel ollamaUrl apiKeyRequestStatus').lean()
         ]);
-        
+
         if (user?.preferredLlmProvider === 'gemini' && user?.apiKeyRequestStatus === 'pending' && !user?.encryptedApiKey) {
             console.warn(`[Chat Route] Denying chat access for user ${userId} due to pending API key request.`);
             const err = new Error('Your request for an API key is pending approval. You cannot start a conversation until the administrator approves your request.');
@@ -90,7 +102,7 @@ router.post('/message', async (req, res) => {
 
         const historyFromDb = chatSession ? chatSession.messages : [];
         const chatContext = { userId, subject: documentContextName, chatHistory: historyFromDb, user: user };
-        const { chosenModel, logic: routerLogic } = await selectLLM(query.trim(), chatContext); 
+        const { chosenModel, logic: routerLogic } = await selectLLM(query.trim(), chatContext);
         const llmConfig = {
             llmProvider: chosenModel.provider,
             geminiModel: chosenModel.provider === 'gemini' ? chosenModel.modelId : null,
@@ -98,7 +110,7 @@ router.post('/message', async (req, res) => {
             apiKey: user?.encryptedApiKey ? decrypt(user.encryptedApiKey) : null,
             ollamaUrl: user?.ollamaUrl
         };
-        
+
         const summaryFromDb = chatSession ? chatSession.summary || "" : "";
         const historyForLlm = [];
 
@@ -106,15 +118,15 @@ router.post('/message', async (req, res) => {
             historyForLlm.push({ role: 'user', parts: [{ text: `CONTEXT (Summary of Past Conversations): """${summaryFromDb}"""` }] });
             historyForLlm.push({ role: 'model', parts: [{ text: "Understood. I will use this context if the user's query is about our past conversations." }] });
         }
-        
+
         const formattedDbMessages = historyFromDb.map(msg => ({ role: msg.role, parts: msg.parts.map(part => ({ text: part.text || '' })) }));
         historyForLlm.push(...formattedDbMessages);
-        
+
         const requestContext = {
             documentContextName, criticalThinkingEnabled, filter,
-            userId: userId.toString(), 
+            userId: userId.toString(),
             systemPrompt: clientProvidedSystemInstruction,
-            isWebSearchEnabled: !!useWebSearch, 
+            isWebSearchEnabled: !!useWebSearch,
             isAcademicSearchEnabled: !!useAcademicSearch,
             ...llmConfig
         };
@@ -126,27 +138,27 @@ router.post('/message', async (req, res) => {
             res.setHeader('Cache-Control', 'no-cache');
             res.setHeader('Connection', 'keep-alive');
             res.flushHeaders();
-            
+
             const accumulatedThoughts = [];
             const interceptingStreamCallback = (eventData) => {
                 if (eventData.type === 'thought') accumulatedThoughts.push(eventData.content);
                 streamEvent(res, eventData);
             };
-            
+
             const totResult = await processQueryWithToT_Streaming(query.trim(), historyForLlm, requestContext, interceptingStreamCallback);
             const endTime = Date.now();
             const cues = await generateCues(totResult.finalAnswer, llmConfig);
 
             agentResponse = { ...totResult, thinking: accumulatedThoughts.join(''), criticalThinkingCues: cues };
-            
+
             // 1. Create Log Entry AFTER getting the final answer
             const logEntry = new LLMPerformanceLog({
-                userId, 
-                sessionId, 
-                query: query.trim(), 
+                userId,
+                sessionId,
+                query: query.trim(),
                 response: agentResponse.finalAnswer, // <-- THIS IS THE NEW LINE
                 chosenModelId: chosenModel.modelId,
-                routerLogic: routerLogic, 
+                routerLogic: routerLogic,
                 responseTimeMs: endTime - startTime
             });
             await logEntry.save();
@@ -154,24 +166,24 @@ router.post('/message', async (req, res) => {
 
             // 2. Inject logId into the response object
             agentResponse.logId = logEntry._id;
-            
+
             // ... (rest of the streaming logic remains the same)
             // 3. Prepare message for DB and save it ONCE.
-            const aiMessageForDb = { 
-                ...agentResponse, 
-                sender: 'bot', 
-                role: 'model', 
-                text: agentResponse.finalAnswer, 
-                parts: [{ text: agentResponse.finalAnswer }], 
-                timestamp: new Date() 
+            const aiMessageForDb = {
+                ...agentResponse,
+                sender: 'bot',
+                role: 'model',
+                text: agentResponse.finalAnswer,
+                parts: [{ text: agentResponse.finalAnswer }],
+                timestamp: new Date()
             };
             delete aiMessageForDb.criticalThinkingCues;
             delete aiMessageForDb.sender;
             delete aiMessageForDb.text;
             delete aiMessageForDb.action;
-    
+
             await ChatHistory.findOneAndUpdate({ sessionId, userId }, { $push: { messages: { $each: [userMessageForDb, aiMessageForDb] } } }, { upsert: true });
-            
+
             // 4. Trigger KG extraction
             if (agentResponse.finalAnswer) {
                 extractAndStoreKgFromText(agentResponse.finalAnswer, sessionId, userId, llmConfig);
@@ -186,22 +198,22 @@ router.post('/message', async (req, res) => {
             const startTime = Date.now(); // Moved start time here
             agentResponse = await processAgenticRequest(query.trim(), historyForLlm, clientProvidedSystemInstruction, requestContext);
             const endTime = Date.now();
-            
+
             // --- START MODIFICATION (Non-Streaming Path) ---
             // 1. Create the Performance Log Entry with the response
             const logEntry = new LLMPerformanceLog({
-                userId, 
-                sessionId, 
-                query: query.trim(), 
+                userId,
+                sessionId,
+                query: query.trim(),
                 response: agentResponse.finalAnswer, // <-- THIS IS THE NEW LINE
                 chosenModelId: chosenModel.modelId,
-                routerLogic: routerLogic, 
+                routerLogic: routerLogic,
                 responseTimeMs: endTime - startTime
             });
             await logEntry.save();
             console.log(`[PerformanceLog] Logged decision for session ${sessionId} with logId: ${logEntry._id}.`);
             // --- END MODIFICATION (Non-Streaming Path) ---
-            
+
             // 2. Build the FINAL AI message object for both DB and Client
             const finalAiMessage = {
                 sender: 'bot',
@@ -216,14 +228,14 @@ router.post('/message', async (req, res) => {
                 logId: logEntry._id, // Attach the log ID
                 criticalThinkingCues: await generateCues(agentResponse.finalAnswer, llmConfig)
             };
-            
+
             // 3. Create a clean version for the database (without frontend-specific fields)
             const messageForDb = { ...finalAiMessage };
             delete messageForDb.sender;
             delete messageForDb.text;
             delete messageForDb.criticalThinkingCues;
             delete messageForDb.action;
-            
+
             // 4. Save to Database ONCE
             await ChatHistory.findOneAndUpdate(
                 { sessionId, userId },
@@ -233,13 +245,13 @@ router.post('/message', async (req, res) => {
 
             // 5. Send final response to client
             res.status(200).json({ reply: finalAiMessage });
-            
+
             // 6. Trigger background KG extraction
             if (agentResponse.finalAnswer) {
                 extractAndStoreKgFromText(agentResponse.finalAnswer, sessionId, userId, llmConfig);
             }
         }
-        
+
         // --- FIX ---
         // The redundant, common DB save logic that was here has been removed.
         // --- END FIX ---
@@ -247,7 +259,7 @@ router.post('/message', async (req, res) => {
     } catch (error) {
         console.error(`!!! Error processing chat message for Session ${sessionId}:`, error);
         const clientMessage = error.message || "Failed to get response from AI service.";
-        
+
         if (res.headersSent && !res.writableEnded) {
             streamEvent(res, { type: 'error', content: clientMessage });
             res.end();
@@ -262,7 +274,7 @@ router.post('/history', async (req, res) => {
     const { previousSessionId, skipAnalysis } = req.body;
     const userId = req.user._id;
     const newSessionId = uuidv4();
-    
+
     auditLog(req, 'NEW_CHAT_SESSION_CREATED', {
         previousSessionId: previousSessionId || null,
         skipAnalysis: !!skipAnalysis
@@ -278,10 +290,10 @@ router.post('/history', async (req, res) => {
     try {
         if (previousSessionId && !skipAnalysis) {
             const previousSession = await ChatHistory.findOne({ sessionId: previousSessionId, userId: userId });
-            
+
             if (previousSession && previousSession.messages?.length > 1) {
                 console.log(`[Chat Route] Finalizing previous session '${previousSessionId}'...`);
-                
+
                 const user = await User.findById(userId).select('profile preferredLlmProvider ollamaModel ollamaUrl +encryptedApiKey');
                 const llmConfig = {
                     llmProvider: user?.preferredLlmProvider || 'gemini',
@@ -301,11 +313,11 @@ router.post('/history', async (req, res) => {
                 );
 
                 if (knowledgeGaps && knowledgeGaps.size > 0) {
-                    user.profile.performanceMetrics.clear();     
+                    user.profile.performanceMetrics.clear();
                     knowledgeGaps.forEach((score, topic) => {
                         user.profile.performanceMetrics.set(topic.replace(/\./g, '-'), score);
                     });
-                    await user.save(); 
+                    await user.save();
                     console.log(`[Chat Route] Updated user performance metrics with ${knowledgeGaps.size} new gaps.`);
 
                     let mostSignificantGap = null;
@@ -326,7 +338,7 @@ router.post('/history', async (req, res) => {
                         };
                     }
                 }
-                
+
                 if (keyTopics && keyTopics.length > 0 && !responsePayload.studyPlanSuggestion) {
                     const primaryTopic = keyTopics[0];
                     console.log(`[Chat Route] Focused topic detected: "${primaryTopic}". Generating study plan suggestion.`);
@@ -356,7 +368,7 @@ router.post('/history', async (req, res) => {
                 responsePayload.message = 'New session started, but analysis of previous session failed.';
                 res.status(200).json(responsePayload);
             } catch (fallbackError) {
-                 res.status(500).json({ message: 'A critical error occurred while creating a new session.' });
+                res.status(500).json({ message: 'A critical error occurred while creating a new session.' });
             }
         }
     }
@@ -378,7 +390,7 @@ router.get('/sessions', async (req, res) => {
 });
 
 router.get('/session/:sessionId', async (req, res) => {
-     try {
+    try {
         const session = await ChatHistory.findOne({ sessionId: req.params.sessionId, userId: req.user._id }).lean();
         if (!session) return res.status(404).json({ message: 'Chat session not found or access denied.' });
 
@@ -392,7 +404,7 @@ router.get('/session/:sessionId', async (req, res) => {
             source_pipeline: msg.source_pipeline,
             logId: msg.logId || null
         }));
-        
+
         res.status(200).json({ ...session, messages: messagesForFrontend });
     } catch (error) {
         console.error(`!!! Error fetching chat session ${req.params.sessionId} for user ${req.user._id}:`, error);

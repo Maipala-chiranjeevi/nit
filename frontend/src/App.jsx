@@ -26,6 +26,7 @@ import LandingPage from './components/landing/LandingPage.jsx';
 import OnboardingFlow from './components/onboarding/OnboardingFlow.jsx';
 import AnalyticsDashboardPage from './components/admin/AnalyticsDashboardPage.jsx';
 import SocraticModePage from './components/tools/SocraticModePage.jsx';
+import ProfilePage from './pages/ProfilePage.jsx';
 
 
 function SessionLoadingModal() {
@@ -357,6 +358,7 @@ function App() {
                         <Route path="/tools/quiz-generator" element={<QuizGeneratorPage />} />
                         <Route path="/tools/integrity-checker" element={<AcademicIntegrityPage />} />
                         <Route path="/tools/socratic-mode" element={<SocraticModePage />} />
+                        <Route path="/profile" element={<ProfilePage />} />
                         <Route path="/admin/dashboard" element={<Navigate to="/" replace />} />
                         <Route path="/*" element={
                             <MainAppLayout

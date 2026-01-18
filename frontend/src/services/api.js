@@ -77,6 +77,12 @@ const api = {
         return response.data;
     },
 
+    // --- Gamification ---
+    claimBounty: async (bountyId, answer = '') => {
+        const response = await apiClient.post('/user/bounties/claim', { bountyId, answer });
+        return response.data;
+    },
+
     // --- Chat & Sessions ---
     sendMessage: async (payload) => {
         const response = await apiClient.post('/chat/message', payload); // Corrected endpoint to /message based on chat.js line 48

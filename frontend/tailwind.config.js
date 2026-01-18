@@ -14,11 +14,32 @@ export default {
   theme: {
     extend: {
       colors: {
-        'primary': { light: '#60a5fa', DEFAULT: '#3b82f6', dark: '#2563eb' },
-        'secondary': { light: '#9ca3af', DEFAULT: '#6b7280', dark: '#4b5563' },
-        'accent': '#2dd4bf',
-        'background-dark': '#0F172A', 'surface-dark': '#1E293B', 'border-dark': '#334155', 'text-dark': '#E2E8F0', 'text-muted-dark': '#94A3B8',
-        'background-light': '#F8FAFC', 'surface-light': '#FFFFFF', 'border-light': '#E2E8F0', 'text-light': '#0F172A', 'text-muted-light': '#64748B',
+        'primary': { light: '#2dd4bf', DEFAULT: '#0d9488', dark: '#115e59' }, // Teal (Nature/Growth)
+        'secondary': { light: '#a78bfa', DEFAULT: '#7c3aed', dark: '#5b21b6' }, // Violet (Creativity/Magic)
+        'accent': '#f43f5e', // Rose (Vibrant Energy)
+        'nature': {
+          leaf: '#4ade80',
+          sky: '#38bdf8',
+          sand: '#fdba74',
+          stone: '#57534e'
+        },
+        'background-dark': '#0f172a', // Slate 900
+        'surface-dark': '#1e293b',   // Slate 800 - Glass base
+        'border-dark': '#334155',    // Slate 700
+        'text-dark': '#f1f5f9',      // Slate 100
+        'text-muted-dark': '#94a3b8', // Slate 400
+
+        'background-light': '#f0f9ff', // Alice Blue
+        'surface-light': '#ffffff',
+        'border-light': '#e2e8f0',
+        'text-light': '#0f172a',
+        'text-muted-light': '#64748b',
+
+        'glass': {
+          border: 'rgba(255, 255, 255, 0.1)',
+          surface: 'rgba(30, 41, 59, 0.7)',
+          highlight: 'rgba(255, 255, 255, 0.05)'
+        }
       },
       fontFamily: {
         sans: ['"Inter var"', 'Inter', 'system-ui', 'sans-serif'],

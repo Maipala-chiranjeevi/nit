@@ -3,6 +3,7 @@ const geminiService = require('./geminiService');
 const ollamaService = require('./ollamaService');
 const User = require('../models/User');
 const { decrypt } = require('../utils/crypto');
+const gamificationService = require('./gamificationService');
 
 
 const SUMMARY_GAPS_PROMPT = `You are an expert educational analyst. Your task is to analyze the provided chat transcript and perform three actions. Your entire output MUST be a single, valid JSON object with NO other text before or after it.
@@ -73,65 +74,65 @@ Example Output:
  * STEP A: Gets the summary and knowledge gaps from a transcript.
  */
 async function getSummaryAndGaps(transcript, existingSummary, llmProvider, ollamaModel, userApiKey, userOllamaUrl) {
-    // Add keyTopics to the default response for safety.
-    const defaultResponse = { summary: existingSummary || "", knowledgeGaps: [], keyTopics: [] };
-    const userPrompt = `Existing Summary:\n"""\n${existingSummary || "None"}\n"""\n\nNew Messages:\n"""\n${transcript}\n"""\n\nPlease provide your analysis in the required JSON format.`;
-    
-    console.log(`[SessionAnalysisService] Requesting summary, gaps, and key topics using ${llmProvider}.`);
-    
-    try {
-        const llmService = llmProvider === 'ollama' ? ollamaService : geminiService;
-        const llmOptions = { apiKey: userApiKey, ollamaUrl: userOllamaUrl, model: ollamaModel, temperature: 0.2 };
-        const responseText = await llmService.generateContentWithHistory([], userPrompt, SUMMARY_GAPS_PROMPT, llmOptions);
+  // Add keyTopics to the default response for safety.
+  const defaultResponse = { summary: existingSummary || "", knowledgeGaps: [], keyTopics: [] };
+  const userPrompt = `Existing Summary:\n"""\n${existingSummary || "None"}\n"""\n\nNew Messages:\n"""\n${transcript}\n"""\n\nPlease provide your analysis in the required JSON format.`;
 
-        // Find and parse the JSON block from the LLM's response.
-        const jsonMatch = responseText.match(/```(json)?\s*([\s\S]+?)\s*```/);
-        const jsonString = jsonMatch ? jsonMatch[2].trim() : responseText.trim();
-        const result = JSON.parse(jsonString);
+  console.log(`[SessionAnalysisService] Requesting summary, gaps, and key topics using ${llmProvider}.`);
 
-        // Safely extract each piece of data, providing fallbacks.
-        const finalSummary = result.summary || existingSummary || "";
-        const knowledgeGaps = (result.knowledgeGaps && Array.isArray(result.knowledgeGaps)) ? result.knowledgeGaps : [];
-        const keyTopics = (result.keyTopics && Array.isArray(result.keyTopics)) ? result.keyTopics : [];
-        
-        console.log(`[SessionAnalysisService] Analysis successful. Found ${knowledgeGaps.length} gaps and ${keyTopics.length} key topics.`);
-        
-        // Return all three pieces of data in the final object.
-        return { summary: finalSummary, knowledgeGaps, keyTopics };
-        
-    } catch (error) {
-        console.error(`[SessionAnalysisService] Error during summary/gap/topic analysis: ${error.message}`);
-        return defaultResponse; // Return a safe default on any error.
-    }
+  try {
+    const llmService = llmProvider === 'ollama' ? ollamaService : geminiService;
+    const llmOptions = { apiKey: userApiKey, ollamaUrl: userOllamaUrl, model: ollamaModel, temperature: 0.2 };
+    const responseText = await llmService.generateContentWithHistory([], userPrompt, SUMMARY_GAPS_PROMPT, llmOptions);
+
+    // Find and parse the JSON block from the LLM's response.
+    const jsonMatch = responseText.match(/```(json)?\s*([\s\S]+?)\s*```/);
+    const jsonString = jsonMatch ? jsonMatch[2].trim() : responseText.trim();
+    const result = JSON.parse(jsonString);
+
+    // Safely extract each piece of data, providing fallbacks.
+    const finalSummary = result.summary || existingSummary || "";
+    const knowledgeGaps = (result.knowledgeGaps && Array.isArray(result.knowledgeGaps)) ? result.knowledgeGaps : [];
+    const keyTopics = (result.keyTopics && Array.isArray(result.keyTopics)) ? result.keyTopics : [];
+
+    console.log(`[SessionAnalysisService] Analysis successful. Found ${knowledgeGaps.length} gaps and ${keyTopics.length} key topics.`);
+
+    // Return all three pieces of data in the final object.
+    return { summary: finalSummary, knowledgeGaps, keyTopics };
+
+  } catch (error) {
+    console.error(`[SessionAnalysisService] Error during summary/gap/topic analysis: ${error.message}`);
+    return defaultResponse; // Return a safe default on any error.
+  }
 }
 
 /**
  * STEP B: Gets recommendations based on knowledge gaps.
  */
 async function generateRecommendations(knowledgeGaps, llmProvider, ollamaModel, userApiKey, userOllamaUrl) {
-    if (!knowledgeGaps || knowledgeGaps.length === 0) {
-        return []; // No gaps, no recommendations needed.
-    }
-    
-    const userPrompt = `Knowledge Gaps Identified:\n${JSON.stringify(knowledgeGaps, null, 2)}\n\nPlease provide your recommendations in the required JSON format.`;
-    console.log(`[SessionAnalysisService] Requesting recommendations for ${knowledgeGaps.length} knowledge gaps.`);
+  if (!knowledgeGaps || knowledgeGaps.length === 0) {
+    return []; // No gaps, no recommendations needed.
+  }
 
-    try {
-        const llmService = llmProvider === 'ollama' ? ollamaService : geminiService;
-        const llmOptions = { apiKey: userApiKey, ollamaUrl: userOllamaUrl, model: ollamaModel, temperature: 0.5 };
-        const responseText = await llmService.generateContentWithHistory([], userPrompt, RECOMMENDATIONS_PROMPT, llmOptions);
+  const userPrompt = `Knowledge Gaps Identified:\n${JSON.stringify(knowledgeGaps, null, 2)}\n\nPlease provide your recommendations in the required JSON format.`;
+  console.log(`[SessionAnalysisService] Requesting recommendations for ${knowledgeGaps.length} knowledge gaps.`);
 
-        const jsonMatch = responseText.match(/```(json)?\s*([\s\S]+?)\s*```/);
-        const jsonString = jsonMatch ? jsonMatch[2].trim() : responseText.trim();
-        const result = JSON.parse(jsonString);
+  try {
+    const llmService = llmProvider === 'ollama' ? ollamaService : geminiService;
+    const llmOptions = { apiKey: userApiKey, ollamaUrl: userOllamaUrl, model: ollamaModel, temperature: 0.5 };
+    const responseText = await llmService.generateContentWithHistory([], userPrompt, RECOMMENDATIONS_PROMPT, llmOptions);
 
-        const recommendations = (result.recommendations && Array.isArray(result.recommendations)) ? result.recommendations.slice(0, 3) : [];
-        console.log(`[SessionAnalysisService] Recommendation generation successful. Generated ${recommendations.length} recommendations.`);
-        return recommendations;
-    } catch (error) {
-        console.error(`[SessionAnalysisService] Error during recommendation generation: ${error.message}`);
-        return []; // Return empty array on error
-    }
+    const jsonMatch = responseText.match(/```(json)?\s*([\s\S]+?)\s*```/);
+    const jsonString = jsonMatch ? jsonMatch[2].trim() : responseText.trim();
+    const result = JSON.parse(jsonString);
+
+    const recommendations = (result.recommendations && Array.isArray(result.recommendations)) ? result.recommendations.slice(0, 3) : [];
+    console.log(`[SessionAnalysisService] Recommendation generation successful. Generated ${recommendations.length} recommendations.`);
+    return recommendations;
+  } catch (error) {
+    console.error(`[SessionAnalysisService] Error during recommendation generation: ${error.message}`);
+    return []; // Return empty array on error
+  }
 }
 
 /**
@@ -139,31 +140,55 @@ async function generateRecommendations(knowledgeGaps, llmProvider, ollamaModel, 
  * @returns {Promise<{summary: string, knowledgeGaps: Map<string, number>, recommendations: Array<Object>}>}
  */
 async function analyzeAndRecommend(messagesToSummarize, existingSummary, llmProvider, ollamaModel, userApiKey, userOllamaUrl) {
-    const defaultResponse = { summary: existingSummary || "", knowledgeGaps: new Map(), recommendations: [] };
-    if (!messagesToSummarize || messagesToSummarize.length < 2) {
-        return defaultResponse;
+  const defaultResponse = { summary: existingSummary || "", knowledgeGaps: new Map(), recommendations: [] };
+  if (!messagesToSummarize || messagesToSummarize.length < 2) {
+    return defaultResponse;
+  }
+
+  const transcript = messagesToSummarize.map(msg => `${msg.role === 'model' ? 'Tutor' : 'Student'}: ${msg.parts?.[0]?.text || ''}`).join('\n---\n');
+
+  // Step A: Get Summary, Gaps, and NOW Key Topics
+  const { summary, knowledgeGaps, keyTopics } = await getSummaryAndGaps(transcript, existingSummary, llmProvider, ollamaModel, userApiKey, userOllamaUrl);
+
+  // [GAMIFICATION] Generate "Challenge Questions" (Bounties) based on Gaps
+  let bounties = [];
+  if (knowledgeGaps && knowledgeGaps.length > 0) {
+    // Simple logic: Create a bounty for the biggest gap
+    const biggestGap = knowledgeGaps.sort((a, b) => a.proficiencyScore - b.proficiencyScore)[0];
+    if (biggestGap) {
+      bounties.push({
+        question: `Explain ${biggestGap.topic} in your own words to prove mastery.`,
+        topic: biggestGap.topic,
+        difficulty: 'medium',
+        reward: 50
+      });
     }
-    
-    const transcript = messagesToSummarize.map(msg => `${msg.role === 'model' ? 'Tutor' : 'Student'}: ${msg.parts?.[0]?.text || ''}`).join('\n---\n');
+  }
 
-    // Step A: Get Summary, Gaps, and NOW Key Topics
-    const { summary, knowledgeGaps, keyTopics } = await getSummaryAndGaps(transcript, existingSummary, llmProvider, ollamaModel, userApiKey, userOllamaUrl);
+  // [GAMIFICATION] Classify Bloom Level for the session (approximation using last user query)
+  // We can't do per-query here easily without refactoring the whole chat flow, 
+  // but we can "grade" the session's complexity or rely on the separate per-message hook.
+  // For now, let's assuming the calling controller handles per-message scoring, 
+  // and here we just return the analysis.
 
-    // Step B: Generate Recommendations FROM THE KEY TOPICS
-    // We now pass keyTopics to the recommendation generator instead of knowledgeGaps
-    const recommendations = await generateRecommendations(keyTopics, llmProvider, ollamaModel, userApiKey, userOllamaUrl);
-    
-    // ... (rest of the function converting knowledgeGaps to a Map remains the same)
-    const knowledgeGapsMap = new Map();
-    if (knowledgeGaps) {
-        knowledgeGaps.forEach(item => {
-            if (typeof item.topic === 'string' && typeof item.proficiencyScore === 'number') {
-                knowledgeGapsMap.set(item.topic, item.proficiencyScore);
-            }
-        });
-    }
+  // We can however return specific "Challenge Questions" as bounties to be saved by the controller.
 
-        return { summary, knowledgeGaps: knowledgeGapsMap, recommendations, keyTopics };}
+  // Step B: Generate Recommendations FROM THE KEY TOPICS
+  // We now pass keyTopics to the recommendation generator instead of knowledgeGaps
+  const recommendations = await generateRecommendations(keyTopics, llmProvider, ollamaModel, userApiKey, userOllamaUrl);
+
+  // ... (rest of the function converting knowledgeGaps to a Map remains the same)
+  const knowledgeGapsMap = new Map();
+  if (knowledgeGaps) {
+    knowledgeGaps.forEach(item => {
+      if (typeof item.topic === 'string' && typeof item.proficiencyScore === 'number') {
+        knowledgeGapsMap.set(item.topic, item.proficiencyScore);
+      }
+    });
+  }
+
+  return { summary, knowledgeGaps: knowledgeGapsMap, recommendations, keyTopics, bounties };
+}
 
 
 module.exports = { analyzeAndRecommend }; 
