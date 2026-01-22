@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import api from '../../services/api.js';
 import toast from 'react-hot-toast';
 import Button from '../core/Button.jsx';
-import { Send, FileText, ArrowLeft, Loader2, UploadCloud, Plus, MessageSquare, Trash2 } from 'lucide-react';
+import { Send, FileText, ArrowLeft, Loader2, UploadCloud, Plus, MessageSquare, Trash2, BookOpen, CheckCircle, Circle, GraduationCap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 export default function SocraticModePage() {
@@ -12,6 +12,7 @@ export default function SocraticModePage() {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
+    const [generatingPlan, setGeneratingPlan] = useState(false); // New state for plan generation
     const messagesEndRef = useRef(null);
 
     // Load Sessions on Mount
@@ -70,28 +71,36 @@ export default function SocraticModePage() {
     }, [messages]);
 
     const handleFileUpload = async (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
 
         setIsUploading(true);
-        const toastId = toast.loading("Uploading & Analyzing...");
+        const toastId = toast.loading(`Uploading ${files.length} file(s)...`);
 
         try {
-            // Upload returns { sessionId, message, cached }
-            const data = await api.socraticUpload(file, currentSession?._id);
+            let lastSession = currentSession;
+            let successCount = 0;
 
-            // Fetch the full new session to get the initial "Assistant" message
-            const newSession = await api.getSocraticHistory(data.sessionId);
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                toast.loading(`Uploading ${i + 1}/${files.length}: ${file.name}`, { id: toastId });
 
-            setCurrentSession(newSession);
-            setMessages(newSession.messages);
+                // Upload returns { sessionId, message, cached }
+                // For the first file, we might pass currentSession?._id
+                // For subsequent files, we MUST pass the sessionId returned from the first upload to append to the SAME session
+                const targetSessionId = lastSession?._id || (i > 0 ? lastSession?._id : null);
 
-            if (data.cached) {
-                toast.success("File recognized! Loaded instantly.", { id: toastId });
-            } else {
-                toast.success("File uploaded! Ready to learn.", { id: toastId });
+                const data = await api.socraticUpload(file, targetSessionId);
+
+                // Fetch the full new session after EACH upload to ensure we have the latest state (and sessionId for next loop)
+                lastSession = await api.getSocraticHistory(data.sessionId);
+                successCount++;
             }
 
+            setCurrentSession(lastSession);
+            setMessages(lastSession.messages);
+
+            toast.success(`Successfully uploaded ${successCount} files!`, { id: toastId });
             loadSessions(); // Refresh list
 
         } catch (error) {
@@ -100,6 +109,8 @@ export default function SocraticModePage() {
             toast.error(`Error: ${msg}`, { id: toastId, duration: 5000 });
         } finally {
             setIsUploading(false);
+            // Reset file input
+            if (e.target) e.target.value = null;
         }
     };
 
@@ -126,6 +137,54 @@ export default function SocraticModePage() {
             setMessages(prev => [...prev, { role: 'assistant', content: "⚠️ I encountered an error. Please try again." }]);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    // --- NEW: Handle Learning Level Update ---
+    const handleUpdateLevel = async (level) => {
+        if (!currentSession) return;
+        const toastId = toast.loading(`Setting level to ${level}...`);
+        try {
+            await api.setLearningLevel(currentSession._id, level);
+            setCurrentSession(prev => ({ ...prev, learningLevel: level }));
+            toast.success(`Level set to ${level.charAt(0).toUpperCase() + level.slice(1)}`, { id: toastId });
+
+            // Optionally add system message
+            setMessages(prev => [...prev, { role: 'assistant', content: `Adjusting my explanations for a **${level}** level.` }]);
+        } catch (error) {
+            toast.error("Failed to update level", { id: toastId });
+        }
+    };
+
+    // --- NEW: Handle Generate Plan ---
+    const handleGeneratePlan = async () => {
+        if (!currentSession) return;
+        setGeneratingPlan(true);
+        const toastId = toast.loading("Generating study plan...");
+        try {
+            const updatedSession = await api.generateStudyPlan(currentSession._id);
+            setCurrentSession(updatedSession);
+            setMessages(updatedSession.messages); // Plan generation adds a message
+            toast.success("Study plan generated!", { id: toastId });
+        } catch (error) {
+            toast.error("Failed to generate plan", { id: toastId });
+        } finally {
+            setGeneratingPlan(false);
+        }
+    };
+
+    // --- NEW: Handle Topic Status Update ---
+    const handleUpdateTopicStatus = async (index, status) => {
+        if (!currentSession) return;
+        try {
+            const updatedSession = await api.updateTopicStatus(currentSession._id, index, status);
+            setCurrentSession(updatedSession);
+            // If the status update triggered a "next topic" message, update messages
+            if (updatedSession.messages.length > messages.length) {
+                setMessages(updatedSession.messages);
+            }
+        } catch (error) {
+            toast.error("Failed to update status");
         }
     };
 
@@ -180,136 +239,239 @@ export default function SocraticModePage() {
                 </div>
             </div>
 
-            {/* Main Content */}
-            <div className="flex-1 flex flex-col min-w-0">
-                {/* Header */}
-                <div className="shrink-0 p-4 border-b border-border-light dark:border-border-dark flex items-center justify-between bg-surface-light dark:bg-surface-dark shadow-sm z-10">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-purple-500/10 rounded-lg">
-                            <FileText className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <h1 className="text-xl font-bold text-text-light dark:text-text-dark truncate">Socratic Tutor</h1>
-                            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-                                {!currentSession ? (
-                                    <p className="text-xs text-text-muted-light dark:text-text-muted-dark">
-                                        Start a new learning session
-                                    </p>
-                                ) : (
-                                    <div className="flex gap-1">
-                                        {currentSession.filenames?.map((fname, i) => (
-                                            <span key={i} className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-700 whitespace-nowrap">
-                                                {fname}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
+            {/* Main Content Area */}
+            <div className="flex-1 flex min-w-0">
+
+                {/* Chat Column */}
+                <div className="flex-1 flex flex-col min-w-0">
+                    {/* Header */}
+                    <div className="shrink-0 p-4 border-b border-border-light dark:border-border-dark flex items-center justify-between bg-surface-light dark:bg-surface-dark shadow-sm z-10">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-purple-500/10 rounded-lg">
+                                <FileText className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h1 className="text-xl font-bold text-text-light dark:text-text-dark truncate">Socratic Tutor</h1>
+                                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                                    {!currentSession ? (
+                                        <p className="text-xs text-text-muted-light dark:text-text-muted-dark">
+                                            Start a new learning session
+                                        </p>
+                                    ) : (
+                                        <div className="flex gap-1">
+                                            {currentSession.filenames?.map((fname, i) => (
+                                                <span key={i} className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-700 whitespace-nowrap">
+                                                    {fname}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
+
+                        {currentSession && (
+                            <label className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors text-sm font-medium">
+                                {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                                <span>Add Doc</span>
+                                <input type="file" className="hidden" accept=".pdf,.txt,.md" multiple onChange={handleFileUpload} disabled={isUploading} />
+                            </label>
+                        )}
                     </div>
 
-                    {currentSession && (
-                        <label className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors text-sm font-medium">
-                            {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-                            <span>Add Doc</span>
-                            <input type="file" className="hidden" accept=".pdf,.txt,.md" onChange={handleFileUpload} disabled={isUploading} />
-                        </label>
-                    )}
-                </div>
+                    {/* Chat Body */}
+                    <div className="flex-1 overflow-hidden relative">
+                        {!currentSession ? (
+                            <div className="h-full flex flex-col items-center justify-center p-6 animate-fadeIn">
+                                <div className="max-w-md w-full bg-surface-light dark:bg-surface-dark p-8 rounded-2xl shadow-xl border border-border-light dark:border-border-dark text-center">
+                                    <h2 className="text-2xl font-bold mb-2 text-text-light dark:text-text-dark">Start Learning</h2>
+                                    <p className="text-text-muted-light dark:text-text-muted-dark mb-8 text-sm">
+                                        Upload a document to begin. <br />
+                                        <span className="opacity-70 text-xs">You can add more files later to combine contexts!</span>
+                                    </p>
 
-                {/* Upload or Chat */}
-                <div className="flex-1 overflow-hidden relative">
-                    {!currentSession ? (
-                        <div className="h-full flex flex-col items-center justify-center p-6 animate-fadeIn">
-                            <div className="max-w-md w-full bg-surface-light dark:bg-surface-dark p-8 rounded-2xl shadow-xl border border-border-light dark:border-border-dark text-center">
-                                <h2 className="text-2xl font-bold mb-2 text-text-light dark:text-text-dark">Start Learning</h2>
-                                <p className="text-text-muted-light dark:text-text-muted-dark mb-8 text-sm">
-                                    Upload a document to begin. <br />
-                                    <span className="opacity-70 text-xs">You can add more files later to combine contexts!</span>
-                                </p>
-
-                                <label className="cursor-pointer flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border-light dark:border-border-dark rounded-xl hover:border-primary transition-colors bg-gray-50 dark:bg-gray-800">
-                                    {isUploading ? (
-                                        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                                    ) : (
-                                        <>
-                                            <UploadCloud className="w-10 h-10 text-primary mb-2" />
-                                            <span className="text-sm font-medium text-text-muted-light dark:text-text-muted-dark">Click to Upload Document</span>
-                                        </>
-                                    )}
-                                    <input type="file" className="hidden" accept=".pdf,.txt,.md" onChange={handleFileUpload} disabled={isUploading} />
-                                </label>
+                                    <label className="cursor-pointer flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border-light dark:border-border-dark rounded-xl hover:border-primary transition-colors bg-gray-50 dark:bg-gray-800">
+                                        {isUploading ? (
+                                            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                                        ) : (
+                                            <>
+                                                <UploadCloud className="w-10 h-10 text-primary mb-2" />
+                                                <span className="text-sm font-medium text-text-muted-light dark:text-text-muted-dark">Click to Upload Document</span>
+                                            </>
+                                        )}
+                                        <input type="file" className="hidden" accept=".pdf,.txt,.md" multiple onChange={handleFileUpload} disabled={isUploading} />
+                                    </label>
+                                </div>
                             </div>
-                        </div>
-                    ) : (
-                        <div className="h-full flex flex-col max-w-4xl mx-auto w-full">
-                            {/* Chat Area */}
-                            <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-                                {messages.map((msg, index) => (
-                                    <div
-                                        key={index}
-                                        className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slideUp`}
-                                    >
+                        ) : (
+                            <div className="h-full flex flex-col w-full">
+                                {/* Chat Area */}
+                                <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+                                    {messages.map((msg, index) => (
                                         <div
-                                            className={`max-w-[85%] md:max-w-[75%] rounded-2xl px-5 py-3.5 shadow-sm text-sm leading-relaxed ${msg.role === 'user'
-                                                ? 'bg-purple-600 text-white rounded-tr-none'
-                                                : 'bg-surface-light dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-text-light dark:text-text-dark rounded-tl-none'
-                                                }`}
+                                            key={index}
+                                            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slideUp`}
                                         >
-                                            <div className="markdown-content">
-                                                <ReactMarkdown
-                                                    components={{
-                                                        p: ({ node, ...props }) => <p className={`mb-2 last:mb-0 ${msg.role === 'user' ? 'text-white' : ''}`} {...props} />,
-                                                        ul: ({ node, ...props }) => <ul className="list-disc pl-4 mb-2" {...props} />,
-                                                        ol: ({ node, ...props }) => <ol className="list-decimal pl-4 mb-2" {...props} />,
-                                                        li: ({ node, ...props }) => <li className="mb-1" {...props} />,
-                                                        code: ({ node, inline, className, children, ...props }) => (
-                                                            <code className={`${inline ? 'bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded' : 'block bg-gray-900 text-white p-2 rounded mb-2 overflow-x-auto'}`} {...props}>
-                                                                {children}
-                                                            </code>
-                                                        )
-                                                    }}
-                                                >
-                                                    {msg.content}
-                                                </ReactMarkdown>
+                                            <div
+                                                className={`max-w-[85%] md:max-w-[75%] rounded-2xl px-5 py-3.5 shadow-sm text-sm leading-relaxed ${msg.role === 'user'
+                                                    ? 'bg-purple-600 text-white rounded-tr-none'
+                                                    : 'bg-surface-light dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-text-light dark:text-text-dark rounded-tl-none'
+                                                    }`}
+                                            >
+                                                <div className="markdown-content">
+                                                    <ReactMarkdown
+                                                        components={{
+                                                            p: ({ node, ...props }) => <p className={`mb-2 last:mb-0 ${msg.role === 'user' ? 'text-white' : ''}`} {...props} />,
+                                                            ul: ({ node, ...props }) => <ul className="list-disc pl-4 mb-2" {...props} />,
+                                                            ol: ({ node, ...props }) => <ol className="list-decimal pl-4 mb-2" {...props} />,
+                                                            li: ({ node, ...props }) => <li className="mb-1" {...props} />,
+                                                            code: ({ node, inline, className, children, ...props }) => (
+                                                                <code className={`${inline ? 'bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded' : 'block bg-gray-900 text-white p-2 rounded mb-2 overflow-x-auto'}`} {...props}>
+                                                                    {children}
+                                                                </code>
+                                                            )
+                                                        }}
+                                                    >
+                                                        {msg.content}
+                                                    </ReactMarkdown>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
-                                {isLoading && (
-                                    <div className="flex justify-start animate-pulse">
-                                        <div className="bg-surface-light dark:bg-gray-800 border border-border-light dark:border-border-dark rounded-2xl rounded-tl-none px-4 py-3 flex items-center gap-2">
-                                            <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
-                                            <span className="text-xs text-text-muted-light dark:text-text-muted-dark">Reasoning...</span>
+                                    ))}
+                                    {isLoading && (
+                                        <div className="flex justify-start animate-pulse">
+                                            <div className="bg-surface-light dark:bg-gray-800 border border-border-light dark:border-border-dark rounded-2xl rounded-tl-none px-4 py-3 flex items-center gap-2">
+                                                <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
+                                                <span className="text-xs text-text-muted-light dark:text-text-muted-dark">Reasoning...</span>
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
-                                <div ref={messagesEndRef} />
+                                    )}
+                                    <div ref={messagesEndRef} />
+                                </div>
+
+                                {/* Input Area */}
+                                <div className="p-4 bg-surface-light dark:bg-surface-dark border-t border-border-light dark:border-border-dark shrink-0">
+                                    <form onSubmit={handleSendMessage} className="relative flex items-center gap-2 max-w-4xl mx-auto">
+                                        <input
+                                            type="text"
+                                            value={input}
+                                            onChange={(e) => setInput(e.target.value)}
+                                            placeholder="Type your answer or question..."
+                                            disabled={isLoading}
+                                            className="flex-1 input-field py-3 pr-12 shadow-sm focus:ring-2 focus:ring-purple-500/20"
+                                        />
+                                        <button
+                                            type="submit"
+                                            disabled={!input.trim() || isLoading}
+                                            className="absolute right-2 p-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                        >
+                                            <Send size={18} />
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Right Panel: Study Plan & Settings */}
+                {currentSession && (
+                    <div className="w-80 border-l border-border-light dark:border-border-dark bg-gray-50 dark:bg-gray-900/30 flex flex-col shrink-0">
+                        <div className="p-4 border-b border-border-light dark:border-border-dark">
+                            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-text-light dark:text-text-dark">
+                                <GraduationCap size={16} className="text-purple-600" />
+                                Learning Settings
+                            </h3>
+
+                            {/* Learning Level Selector */}
+                            <div className="bg-surface-light dark:bg-gray-800 p-3 rounded-lg border border-border-light dark:border-border-dark mb-4 shadow-sm">
+                                <label className="text-xs text-text-muted-light dark:text-text-muted-dark font-medium mb-1.5 block">Learning Level</label>
+                                <div className="flex gap-1">
+                                    {['beginner', 'intermediate', 'advanced'].map(level => (
+                                        <button
+                                            key={level}
+                                            onClick={() => handleUpdateLevel(level)}
+                                            className={`flex-1 text-[10px] py-1.5 px-1 rounded capitalize transition-all
+                                                ${currentSession.learningLevel === level
+                                                    ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800'
+                                                    : 'text-text-muted-light dark:text-text-muted-dark hover:bg-gray-100 dark:hover:bg-gray-700'
+                                                }`}
+                                        >
+                                            {level}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
-                            {/* Input Area */}
-                            <div className="p-4 bg-surface-light dark:bg-surface-dark border-t border-border-light dark:border-border-dark shrink-0">
-                                <form onSubmit={handleSendMessage} className="relative flex items-center gap-2 max-w-4xl mx-auto">
-                                    <input
-                                        type="text"
-                                        value={input}
-                                        onChange={(e) => setInput(e.target.value)}
-                                        placeholder="Type your answer or question..."
-                                        disabled={isLoading}
-                                        className="flex-1 input-field py-3 pr-12 shadow-sm focus:ring-2 focus:ring-purple-500/20"
-                                    />
+                            {/* Study Plan Section */}
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted-light dark:text-text-muted-dark">Study Plan</h3>
+                                {(!currentSession.studyPlan || currentSession.studyPlan.length === 0) && (
                                     <button
-                                        type="submit"
-                                        disabled={!input.trim() || isLoading}
-                                        className="absolute right-2 p-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                        onClick={handleGeneratePlan}
+                                        disabled={generatingPlan}
+                                        className="text-[10px] text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1"
                                     >
-                                        <Send size={18} />
+                                        {generatingPlan ? <Loader2 size={10} className="animate-spin" /> : <BookOpen size={10} />}
+                                        Generate
                                     </button>
-                                </form>
+                                )}
                             </div>
                         </div>
-                    )}
-                </div>
+
+                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                            {!currentSession.studyPlan || currentSession.studyPlan.length === 0 ? (
+                                <div className="text-center py-8 px-4 opacity-60">
+                                    <BookOpen size={32} className="mx-auto mb-2 text-gray-400" />
+                                    <p className="text-xs text-text-muted-light dark:text-text-muted-dark">
+                                        No study plan yet. Click "Generate" to create a structured path from your documents.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {currentSession.studyPlan.map((topic, index) => (
+                                        <div key={index} className={`relative pl-4 border-l-2 ${topic.status === 'completed' ? 'border-green-500' : topic.status === 'in-progress' ? 'border-purple-500' : 'border-gray-300 dark:border-gray-700'}`}>
+                                            <div
+                                                className={`absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full border-2 
+                                                ${topic.status === 'completed' ? 'bg-green-500 border-green-500' : topic.status === 'in-progress' ? 'bg-white dark:bg-gray-900 border-purple-500' : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700'}`}
+                                            />
+
+                                            <div className="mb-1 flex items-start justify-between gap-2">
+                                                <h4 className={`text-sm font-medium leading-tight ${topic.status === 'completed' ? 'text-green-700 dark:text-green-400' : topic.status === 'in-progress' ? 'text-purple-700 dark:text-purple-300' : 'text-text-light dark:text-text-dark'}`}>
+                                                    {topic.topic}
+                                                </h4>
+
+                                                {/* Status Toggle Buttons */}
+                                                <div className="flex shrink-0">
+                                                    {topic.status !== 'completed' && (
+                                                        <button
+                                                            onClick={() => handleUpdateTopicStatus(index, 'completed')}
+                                                            className="text-gray-400 hover:text-green-500" title="Mark Complete"
+                                                        >
+                                                            <CheckCircle size={14} />
+                                                        </button>
+                                                    )}
+                                                    {topic.status === 'completed' && (
+                                                        <button
+                                                            onClick={() => handleUpdateTopicStatus(index, 'in-progress')}
+                                                            className="text-green-500 hover:text-purple-500" title="Mark In Progress"
+                                                        >
+                                                            <CheckCircle size={14} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <p className="text-xs text-text-muted-light dark:text-text-muted-dark leading-relaxed">
+                                                {topic.description}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

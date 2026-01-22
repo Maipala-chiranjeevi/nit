@@ -191,6 +191,9 @@ def chat():
         
     history = data.get('history', [])
 
+    current_topic = data.get('current_topic')
+    learning_level = data.get('learning_level', 'beginner')
+
     if not query or not file_hashes:
         return jsonify({"error": "Query and File Hash(es) are required"}), 400
 
@@ -214,7 +217,7 @@ def chat():
             logger.error(f"Error querying collection {f_hash}: {e}")
 
     if not aggregated_context:
-         return jsonify({"response": "I couldn't find relevant information in the uploaded documents."}), 200
+         return jsonify({"response": "I couldn't find relevant information in the uploaded documents.", "topic_completed": False}), 200
 
     try:
 
@@ -244,12 +247,51 @@ def chat():
         formatted_history = "\n".join([f"{msg.get('role', 'user')}: {msg.get('content', '')}" for msg in recent_history])
         final_history_block = summary_text + formatted_history
 
-        # 3. Generate
-        prompt = SOCRATIC_PROMPT.format(context=aggregated_context, history=final_history_block, query=query)
-        # Use temperature=0.0 to ensure deterministic responses for the same input
-        response = model.generate_content(prompt, generation_config={'temperature': 0.0})
+        # 3. Generate with JSON structure
         
-        return jsonify({"response": response.text, "context": aggregated_context}), 200
+        system_instructions = f"""
+        You are a wise Socratic Tutor. Use the provided context to guide the user to the answer.
+        Current Topic: {current_topic if current_topic else 'General'}
+        Learning Level: {learning_level}
+        
+        INSTRUCTIONS:
+        1. Do not give the answer directly. Ask probing questions.
+        2. If the context doesn't contain the answer, say "I don't see that in the document."
+        3. Assess if the user has demonstrated understanding of the **Current Topic**.
+           - If yes, set "topic_completed" to true.
+           - Otherwise, false.
+        
+        OUTPUT FORMAT:
+        Return JSON Object:
+        {{
+            "response": "Your Socratic response here...",
+            "topic_completed": boolean
+        }}
+        """
+
+        prompt = f"""
+        {system_instructions}
+        
+        CONTEXT:
+        {aggregated_context}
+        
+        CHAT HISTORY:
+        {final_history_block}
+        
+        USER QUERY:
+        {query}
+        """
+
+        # Use temperature=0.0 to ensure deterministic responses for the same input
+        response = model.generate_content(prompt, generation_config={'response_mime_type': 'application/json', 'temperature': 0.0})
+        
+        try:
+             import json
+             resp_json = json.loads(response.text)
+             return jsonify(resp_json), 200
+        except:
+             # Fallback if JSON fails (unlikely with response_mime_type)
+             return jsonify({"response": response.text, "topic_completed": False}), 200
 
 
     except Exception as e:
@@ -257,6 +299,79 @@ def chat():
         error_msg = str(e)
         if "429" in error_msg or "quota" in error_msg.lower():
             return jsonify({"error": "Rate limit exceeded. Please wait a minute and try again."}), 429
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/generate_plan', methods=['POST'])
+def generate_plan():
+    data = request.json
+    file_hashes = data.get('file_hashes', [])
+    learning_level = data.get('learning_level', 'beginner')
+
+    if not file_hashes:
+        return jsonify({"error": "File Hash(es) are required"}), 400
+
+    aggregated_context = ""
+    preview_limit = 5000 # Limit characters to avoid huge context
+
+    # Aggregate context from files
+    for f_hash in file_hashes:
+        try:
+            collection_name = f"doc_{f_hash}"
+            try:
+                collection = chroma_client.get_collection(name=collection_name, embedding_function=embedding_function)
+                # Just get the first few chunks to understand the document structure
+                results = collection.get(limit=10) # Get first 10 chunks
+                if results['documents']:
+                     doc_text = "\n".join(results['documents'])
+                     aggregated_context += f"--- Source File Hash: {f_hash} ---\n{doc_text[:preview_limit]}\n\n"
+            except:
+                pass 
+        except Exception as e:
+            logger.error(f"Error reading collection {f_hash}: {e}")
+
+    if not aggregated_context:
+        return jsonify({"error": "No context found from files"}), 404
+
+    try:
+        prompt = f"""
+        You are an expert curriculum designer. 
+        Based on the following document content, create a structured study plan for a student at the **{learning_level}** level.
+        
+        DOCUMENT CONTENT:
+        {aggregated_context}
+        
+        INSTRUCTIONS:
+        1. Break down the content into 3-5 logical topics/modules.
+        2. Ensure the difficulty matches the '{learning_level}' level.
+        3. Output MUST be valid JSON with the following structure:
+        {{
+            "study_plan": [
+                {{
+                    "topic": "Topic Name",
+                    "description": "Brief description of what will be learned."
+                }},
+                ...
+            ]
+        }}
+        4. Do not include markdown formatting like ```json ... ```. Just the raw JSON string.
+        """
+
+        response = model.generate_content(prompt, generation_config={'response_mime_type': 'application/json'})
+        
+        # Clean up if model adds markdown despite instructions (common issue)
+        clean_text = response.text.strip()
+        if clean_text.startswith('```json'):
+            clean_text = clean_text[7:]
+        if clean_text.endswith('```'):
+            clean_text = clean_text[:-3]
+        
+        import json
+        plan_data = json.loads(clean_text)
+        
+        return jsonify(plan_data), 200
+
+    except Exception as e:
+        logger.error(f"Plan generation failed: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':

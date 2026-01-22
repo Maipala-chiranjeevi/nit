@@ -57,5 +57,10 @@ coverage/
 *.bak
 *.swp
 
+# Runtime / Generated
+server/socratic_service/chroma_db/
+server/socratic_service/uploads/
+server/uploads/
+
 
 code.txt

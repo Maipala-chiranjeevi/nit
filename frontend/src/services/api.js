@@ -105,7 +105,7 @@ const api = {
         return response.data;
     },
     deleteChatSession: async (sessionId) => {
-        const response = await apiClient.delete(`/chat/history/${sessionId}`);
+        const response = await apiClient.delete(`/chat/session/${sessionId}`);
         return response.data;
     },
     analyzePrompt: async (prompt) => {
@@ -233,6 +233,18 @@ const api = {
     },
     deleteSocraticSession: async (sessionId) => {
         const response = await apiClient.delete(`/socratic/history/${sessionId}`);
+        return response.data;
+    },
+    setLearningLevel: async (sessionId, level) => {
+        const response = await apiClient.put(`/socratic/session/${sessionId}/level`, { level });
+        return response.data;
+    },
+    generateStudyPlan: async (sessionId) => {
+        const response = await apiClient.post(`/socratic/session/${sessionId}/plan`);
+        return response.data;
+    },
+    updateTopicStatus: async (sessionId, topicIndex, status) => {
+        const response = await apiClient.put(`/socratic/session/${sessionId}/topic/${topicIndex}`, { status });
         return response.data;
     }
 };
