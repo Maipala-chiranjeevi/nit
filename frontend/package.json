@@ -27,7 +27,7 @@
     "markmap-lib": "^0.18.11",
     "markmap-toolbar": "^0.18.10",
     "markmap-view": "^0.18.10",
-    "mermaid": "^11.6.0",
+    "mermaid": "^10.9.5",
     "monaco-editor": "^0.52.2",
     "pdfjs-dist": "^5.4.54",
     "prismjs": "^1.30.0",

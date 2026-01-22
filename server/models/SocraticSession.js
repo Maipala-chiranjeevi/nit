@@ -20,6 +20,24 @@ const SocraticSessionSchema = new mongoose.Schema({
         content: { type: String, required: true },
         timestamp: { type: Date, default: Date.now }
     }],
+    studyPlan: [{
+        topic: { type: String, required: true },
+        description: { type: String },
+        status: {
+            type: String,
+            enum: ['pending', 'in-progress', 'completed'],
+            default: 'pending'
+        }
+    }],
+    learningLevel: {
+        type: String,
+        enum: ['beginner', 'intermediate', 'advanced'],
+        default: 'beginner'
+    },
+    currentTopicIndex: {
+        type: Number,
+        default: 0
+    },
     createdAt: {
         type: Date,
         default: Date.now
