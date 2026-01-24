@@ -684,6 +684,59 @@ def query_kg_route():
 
 
 
+# --- Study Plan Graph Routes ---
+
+@app.route('/study_plan/graph', methods=['POST'])
+def create_study_plan_graph_route():
+    data = request.get_json()
+    if not data: return create_error_response("Request must be JSON", 400)
+    
+    user_id = data.get('user_id')
+    session_id = data.get('session_id')
+    plan_items = data.get('plan') # List of dicts
+    
+    if not all([user_id, session_id, plan_items]):
+         return create_error_response("Missing 'user_id', 'session_id', or 'plan'", 400)
+
+    try:
+        neo4j_handler.create_study_plan_graph(user_id, session_id, plan_items)
+        return jsonify({"message": "Study plan graph created successfully."}), 201
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        logger.error(f"Failed to create study plan graph: {error_trace}")
+        return create_error_response(f"Failed to create study plan graph: {str(e)}", 500, details=error_trace)
+
+@app.route('/study_plan/status', methods=['PUT'])
+def update_study_plan_status_route():
+    data = request.get_json()
+    if not data: return create_error_response("Request must be JSON", 400)
+
+    user_id = data.get('user_id')
+    session_id = data.get('session_id')
+    topic = data.get('topic')
+    status = data.get('status')
+    
+    if not all([user_id, session_id, topic, status]):
+        return create_error_response("Missing required fields", 400)
+        
+    try:
+        updated = neo4j_handler.update_plan_topic_status(user_id, session_id, topic, status)
+        if updated:
+             return jsonify(updated), 200
+        else:
+             return create_error_response("Topic not found or update failed.", 404)
+    except Exception as e:
+        return create_error_response(f"Failed to update topic status: {str(e)}", 500)
+
+@app.route('/study_plan/graph/<user_id>/<session_id>', methods=['GET'])
+def get_study_plan_graph_route(user_id, session_id):
+    try:
+        graph_data = neo4j_handler.get_study_plan_graph(user_id, session_id)
+        return jsonify(graph_data), 200
+    except Exception as e:
+         return create_error_response(f"Failed to retrieve study plan graph: {str(e)}", 500)
+
+
 @app.route('/analyze_integrity', methods=['POST'])
 def analyze_integrity_route():
     data = request.get_json()

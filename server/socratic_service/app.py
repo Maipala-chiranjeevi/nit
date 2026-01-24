@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -58,6 +59,25 @@ USER QUERY:
 YOUR RESPONSE:
 """
 
+def generate_with_retry(model_instance, prompt, **kwargs):
+    """
+    Wraps model.generate_content with exponential backoff for 429 Rate Limit errors.
+    """
+    base_delay = 10
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            return model_instance.generate_content(prompt, **kwargs)
+        except Exception as e:
+            err_str = str(e)
+            if "429" in err_str or "quota" in err_str.lower():
+                wait_time = base_delay * (2 ** attempt)
+                logger.warning(f"Quota exceeded/Rate limit hit. Retrying in {wait_time}s... (Attempt {attempt+1}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                raise e
+    return model_instance.generate_content(prompt, **kwargs)
+
 def extract_text_from_pdf(filepath):
     reader = PdfReader(filepath)
     text = ""
@@ -109,7 +129,7 @@ def ingest_file():
                 **Difficulty Level:** [Beginner/Intermediate/Advanced]
                 **Socratic Approach:** [Briefly mention how you will help the user learn this]
                 """
-                sum_resp = model.generate_content(summary_prompt)
+                sum_resp = generate_with_retry(model, summary_prompt)
                 summary = sum_resp.text
                 logger.info(f"Generated Summary (Cached): {summary[:50]}...")
              except Exception as e:
@@ -167,7 +187,7 @@ def ingest_file():
             **Socratic Approach:** [Briefly mention how you will help the user learn this]
             """
             
-            sum_resp = model.generate_content(summary_prompt)
+            sum_resp = generate_with_retry(model, summary_prompt)
             summary = sum_resp.text
             logger.info(f"Generated Summary: {summary[:50]}...")
         except Exception as sum_err:
@@ -236,7 +256,7 @@ def chat():
             
             try:
                 # Use a lightweight call (or same model)
-                summary_response = model.generate_content(summary_prompt)
+                summary_response = generate_with_retry(model, summary_prompt)
                 summary_text = f"PREVIOUS CONVERSATION SUMMARY: {summary_response.text}\n"
             except Exception as ex:
                 logger.error(f"Summarization failed: {ex}")
@@ -283,7 +303,7 @@ def chat():
         """
 
         # Use temperature=0.0 to ensure deterministic responses for the same input
-        response = model.generate_content(prompt, generation_config={'response_mime_type': 'application/json', 'temperature': 0.0})
+        response = generate_with_retry(model, prompt, generation_config={'response_mime_type': 'application/json', 'temperature': 0.0})
         
         try:
              import json
@@ -341,14 +361,22 @@ def generate_plan():
         {aggregated_context}
         
         INSTRUCTIONS:
-        1. Break down the content into 3-5 logical topics/modules.
-        2. Ensure the difficulty matches the '{learning_level}' level.
-        3. Output MUST be valid JSON with the following structure:
+        1. Break down the content into 3-5 major logical modules (Lessons).
+        2. For each Lesson, provide 2-4 sub-topics.
+        3. Ensure the difficulty matches the '{learning_level}' level.
+        4. Output MUST be valid JSON with the following structure:
         {{
             "study_plan": [
                 {{
-                    "topic": "Topic Name",
-                    "description": "Brief description of what will be learned."
+                    "topic": "Module 1: Title",
+                    "description": "Overview of module.",
+                    "subtopics": [
+                        {{
+                            "topic": "1.1 Subtopic Title",
+                            "description": "Specific concept details."
+                        }},
+                        ...
+                    ]
                 }},
                 ...
             ]
@@ -356,7 +384,7 @@ def generate_plan():
         4. Do not include markdown formatting like ```json ... ```. Just the raw JSON string.
         """
 
-        response = model.generate_content(prompt, generation_config={'response_mime_type': 'application/json'})
+        response = generate_with_retry(model, prompt, generation_config={'response_mime_type': 'application/json'})
         
         # Clean up if model adds markdown despite instructions (common issue)
         clean_text = response.text.strip()
