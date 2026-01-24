@@ -1,15 +1,42 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 // import api from '../services/api'; // Temporarily commented out for Phase 2
 
 const ActivityHeatmap = ({ userId }) => {
+    const { user } = useAuth();
+    const isLoggedIn = !!user;
+
     const [year, setYear] = useState(new Date().getFullYear());
     const [apiData, setApiData] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [visitedDays, setVisitedDays] = useState(new Set());
 
     // We assume data exists for recent years
     const yearsWithData = [2026, 2025, 2024, 2023, 2022];
+
+    // Effect to Load and Save Visited Days (Persistence)
+    useEffect(() => {
+        if (!user || !user._id) return;
+
+        const storageKey = `visited_days_${user._id}`;
+        try {
+            const stored = localStorage.getItem(storageKey);
+            const savedSet = stored ? new Set(JSON.parse(stored)) : new Set();
+
+            if (isLoggedIn) {
+                // Critical: Must match the grid's date format (UTC YYYY-MM-DD)
+                const todayStr = new Date().toISOString().split('T')[0];
+                if (!savedSet.has(todayStr)) {
+                    savedSet.add(todayStr); // Add today
+                    localStorage.setItem(storageKey, JSON.stringify([...savedSet]));
+                }
+            }
+            setVisitedDays(savedSet);
+        } catch (e) {
+            console.error("Error accessing localStorage for heatmap persistence", e);
+        }
+    }, [user, isLoggedIn]);
 
     // Data Fetching
     useEffect(() => {
@@ -17,17 +44,7 @@ const ActivityHeatmap = ({ userId }) => {
             setLoading(true);
             try {
                 const token = localStorage.getItem('token');
-                setIsLoggedIn(!!token);
-
-                // Even if not logged in, we might want to fetch public data if API allows, 
-                // but currently API requires token. Assuming this component might be used in a context 
-                // where public view is allowed or we just handle the view state.
-                // If API strictly requires token, then non-logged-in users just see empty grid (which is fine).
-
                 const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-
-                // If we want to support public view of heatmap, backend needs to allow public access.
-                // Assuming for now we just want the UI change even if data is empty or public.
 
                 if (token) {
                     const res = await fetch(`/api/users/activity?year=${year}`, {
@@ -102,10 +119,14 @@ const ActivityHeatmap = ({ userId }) => {
                             hasDataForMonth = true;
                         }
 
+                        // Check if this date was visited (logged in) by the user
+                        const isVisited = visitedDays.has(dateStr);
+
                         week.push({
                             date: dateStr,
                             count: score, // This is now bloom score
-                            inMonth: isCurrentMonth
+                            inMonth: isCurrentMonth,
+                            isVisited: isVisited
                         });
                         current.setUTCDate(current.getUTCDate() + 1);
                     }
@@ -137,7 +158,7 @@ const ActivityHeatmap = ({ userId }) => {
             console.error("Critical Error generating heatmap grid:", error);
             return { renderItems: [], monthLabels: [] };
         }
-    }, [year, apiData]);
+    }, [year, apiData, visitedDays]);
 
     // Colors - Based on Total Bloom Points
     // Scale: 1-6 (Single Basic), 7-20 (Few Basic / One Good), 20-50 (Strong), 50+ (Expert Day)
@@ -197,21 +218,42 @@ const ActivityHeatmap = ({ userId }) => {
                             if (item.type === 'spacer') {
                                 return <div key={`spacer-${i}`} style={{ width: `${item.width}px`, flexShrink: 0 }} />;
                             }
+
+                            // Re-calc today just for border if needed, but color comes from visited
+                            const todayStr = new Date().toISOString().split('T')[0];
+
                             // Week Column
                             return (
                                 <div key={`week-${i}`} className="flex flex-col gap-[3px]" style={{ width: `${item.width}px` }}>
-                                    {item.days.map((day, dIndex) => (
-                                        <div
-                                            key={`${i}-${dIndex}`}
-                                            style={{
-                                                width: '12px',
-                                                height: '12px',
-                                                borderRadius: '2px',
-                                                backgroundColor: getCellColor(day.count),
-                                            }}
-                                            title={day.inMonth ? `${day.count} bloom points on ${day.date}` : ''}
-                                        />
-                                    ))}
+                                    {item.days.map((day, dIndex) => {
+                                        const isToday = day.date === todayStr;
+
+                                        let bgColor = getCellColor(day.count);
+
+                                        // Priority: Visited (Saved Login) OR Current Today Login > Bloom Score > Empty
+                                        // This ensures past days kept from storage, AND today is shown instantly
+                                        if (day.isVisited || (isLoggedIn && isToday)) {
+                                            bgColor = '#42dd1fff';
+                                        }
+
+                                        return (
+                                            <div
+                                                key={`${i}-${dIndex}`}
+                                                style={{
+                                                    width: '12px',
+                                                    height: '12px',
+                                                    borderRadius: '2px',
+                                                    backgroundColor: bgColor,
+                                                    boxSizing: 'border-box',
+                                                    zIndex: (day.isVisited || (isLoggedIn && isToday)) ? 10 : 0,
+                                                    position: 'relative',
+                                                    // Glow effect for visited days or today
+                                                    boxShadow: (day.isVisited || (isLoggedIn && isToday)) ? '0 0 6px #42dd1fff' : 'none'
+                                                }}
+                                                title={day.inMonth ? `${day.count} bloom points on ${day.date}${isToday ? ' (Today)' : ''}` : ''}
+                                            />
+                                        );
+                                    })}
                                 </div>
                             );
                         })}
