@@ -12,6 +12,7 @@ const { logger } = require('../utils/logger'); // Assuming you have a logger
 const upload = multer({ dest: 'uploads/' });
 
 const SOCRATIC_SERVICE_URL = process.env.SOCRATIC_SERVICE_URL || 'http://127.0.0.1:2002';
+const PYTHON_RAG_SERVICE_URL = process.env.PYTHON_RAG_SERVICE_URL || 'http://127.0.0.1:2001';
 
 // --- Helper Functions ---
 function calculateFileHash(filepath) {
@@ -34,7 +35,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         }
 
         const userId = req.user?._id;
-        const sessionId = req.body.sessionId; // Optional: Append to existing session
+        const sessionId = req.body.sessionId;
         const filepath = req.file.path;
         const filename = req.file.originalname;
 
@@ -42,12 +43,6 @@ router.post('/upload', upload.single('file'), async (req, res) => {
         const fileHash = await calculateFileHash(filepath);
 
         // 2. Send to Python Service for Ingestion
-        // We send the file file to the python service.
-        // It's often easier to send the FILE itself again or move it.
-        // BUT, for simple RAG, sending the path might work if local, but usually we re-upload.
-        // Let's assume we re-upload or send the file stream.
-
-        // Use form-data library for Node.js
         const FormData = require('form-data');
         const pyFormData = new FormData();
         pyFormData.append('file', fs.createReadStream(filepath), filename);
@@ -76,19 +71,16 @@ router.post('/upload', upload.single('file'), async (req, res) => {
             });
         }
 
-        // Add file info if not already present
         if (!session.fileHashes.includes(fileHash)) {
             session.fileHashes.push(fileHash);
             session.filenames.push(filename);
         }
 
-        // Add System/Assistant Message about the file
         const systemMsg = `I've analyzed **${filename}**. ${summary ? `\n\n**Summary:**\n${summary}` : ''}`;
         session.messages.push({ role: 'assistant', content: systemMsg });
 
         await session.save();
 
-        // Cleanup temp file
         fs.unlinkSync(filepath);
 
         res.json({
@@ -115,14 +107,11 @@ router.post('/chat', async (req, res) => {
         const session = await SocraticSession.findOne({ _id: sessionId, userId });
         if (!session) return res.status(404).json({ message: "Session not found" });
 
-        // Save User Message
         session.messages.push({ role: 'user', content: message });
         await session.save();
 
-        // Call Python (Prepare history)
         const historyForPy = session.messages.map(m => ({ role: m.role, content: m.content }));
 
-        // Prepare context
         const currentTopic = session.studyPlan && session.studyPlan.length > 0 && session.currentTopicIndex >= 0 && session.currentTopicIndex < session.studyPlan.length
             ? session.studyPlan[session.currentTopicIndex]
             : null;
@@ -138,35 +127,10 @@ router.post('/chat', async (req, res) => {
         const assistantResponse = pyRes.data.response;
         const isTopicCompleted = pyRes.data.topic_completed;
 
-        // Save Assistant Message
         session.messages.push({ role: 'assistant', content: assistantResponse });
 
-        // Handle Automatic Topic Completion
-        if (isTopicCompleted && currentTopic && currentTopic.status !== 'completed') {
-            const currentIndex = session.currentTopicIndex;
-
-            // Mark current as complete
-            session.studyPlan[currentIndex].status = 'completed';
-
-            // Find next topic
-            const nextIndex = currentIndex + 1;
-            if (nextIndex < session.studyPlan.length) {
-                session.studyPlan[nextIndex].status = 'in-progress';
-                session.currentTopicIndex = nextIndex;
-
-                // Add System Message for Transition
-                session.messages.push({
-                    role: 'assistant',
-                    content: `🎉 **Topic Completed!**\n\nYou've demonstrated a good understanding of **${currentTopic.topic}**.\nLet's move on to the next topic: **${session.studyPlan[nextIndex].topic}**.`
-                });
-            } else {
-                // All done
-                session.messages.push({
-                    role: 'assistant',
-                    content: `🏆 **Congratulations!**\n\nYou have completed the entire study plan for this document!`
-                });
-            }
-        }
+        // Simplified Chat Completion Logic (Server side status updates usually happen via PUT)
+        // detailed completion logic is in the PUT route now to sync with UI clicks
 
         await session.save();
 
@@ -185,10 +149,9 @@ router.get('/sessions', async (req, res) => {
     const userId = req.user?._id;
     try {
         const sessions = await SocraticSession.find({ userId }).sort({ updatedAt: -1 }).select('filenames createdAt updatedAt');
-        // Map to a friendlier format if needed, or send as is
         const formatted = sessions.map(s => ({
             _id: s._id,
-            filename: s.filenames.join(', ') || "Untitled Session", // Display string
+            filename: s.filenames.join(', ') || "Untitled Session",
             filenames: s.filenames,
             createdAt: s.createdAt,
             updatedAt: s.updatedAt
@@ -262,20 +225,63 @@ router.post('/session/:sessionId/plan', async (req, res) => {
             status: 'pending' // Default status
         }));
 
+        // Assign order
+        session.studyPlan = session.studyPlan.map((item, index) => ({ ...item, order: index }));
+
+        logger.info(`Syncing Study Plan to Neo4j. Modules: ${session.studyPlan.length}`);
+        if (session.studyPlan.length > 0) {
+            logger.info(`First Module Subtopics: ${JSON.stringify(session.studyPlan[0].subtopics)}`);
+        }
+
+        // SYNC TO NEO4J
+        try {
+            await axios.post(`${PYTHON_RAG_SERVICE_URL}/study_plan/graph`, {
+                user_id: userId.toString(),
+                session_id: session._id.toString(),
+                plan: session.studyPlan.map(p => ({
+                    topic: p.topic,
+                    description: p.description,
+                    status: p.status,
+                    order: p.order,
+                    subtopics: p.subtopics ? p.subtopics.map(s => ({
+                        topic: s.topic,
+                        description: s.description,
+                        status: s.status,
+                        order: s.order
+                    })) : []
+                }))
+            });
+        } catch (err) {
+            logger.error(`Failed to sync study plan to Neo4j: ${err.message}`);
+        }
+
         // Auto-start first topic
         if (session.studyPlan.length > 0) {
             session.studyPlan[0].status = 'in-progress';
+            // Start first subtopic if present
+            if (session.studyPlan[0].subtopics && session.studyPlan[0].subtopics.length > 0) {
+                session.studyPlan[0].subtopics[0].status = 'in-progress';
+            }
             session.currentTopicIndex = 0;
 
-            // Add notification message
             session.messages.push({
                 role: 'assistant',
                 content: `**Study Plan Generated!** 📚\n\nI've created a study plan based on your documents. We'll start with: **${session.studyPlan[0].topic}**.\n\n${session.studyPlan[0].description}`
             });
         }
 
-        await session.save();
-        res.json(session);
+        await SocraticSession.findOneAndUpdate(
+            { _id: req.params.sessionId, userId },
+            {
+                studyPlan: session.studyPlan,
+                currentTopicIndex: session.currentTopicIndex,
+                $push: { messages: { $each: session.messages.slice(-1) } }
+            },
+            { new: true }
+        );
+
+        const updatedSession = await SocraticSession.findOne({ _id: req.params.sessionId, userId });
+        res.json(updatedSession);
 
     } catch (error) {
         logger.error(`Plan Gen Error: ${error.message}`);
@@ -284,50 +290,122 @@ router.post('/session/:sessionId/plan', async (req, res) => {
     }
 });
 
-// 8. Update Topic Status
-router.put('/session/:sessionId/topic/:topicIndex', async (req, res) => {
+// 8. Update Topic Status (Hierarchical)
+router.put('/session/:sessionId/topic/status', async (req, res) => {
     const userId = req.user?._id;
-    const topicIndex = parseInt(req.params.topicIndex);
-    const { status } = req.body;
+    const { moduleIndex, subtopicIndex, status } = req.body;
 
     try {
         const session = await SocraticSession.findOne({ _id: req.params.sessionId, userId });
         if (!session) return res.status(404).json({ message: "Session not found" });
 
-        if (!session.studyPlan || !session.studyPlan[topicIndex]) {
-            return res.status(400).json({ message: "Invalid topic index" });
+        if (!session.studyPlan || !session.studyPlan[moduleIndex]) {
+            return res.status(400).json({ message: "Invalid module index" });
         }
 
-        session.studyPlan[topicIndex].status = status;
+        let topicName = "";
 
-        // Logic check: If completed, maybe suggest moving to next?
+        if (subtopicIndex !== undefined && subtopicIndex !== null) {
+            // Updating a subtopic
+            if (!session.studyPlan[moduleIndex].subtopics || !session.studyPlan[moduleIndex].subtopics[subtopicIndex]) {
+                return res.status(400).json({ message: "Invalid subtopic index" });
+            }
+            session.studyPlan[moduleIndex].subtopics[subtopicIndex].status = status;
+            topicName = session.studyPlan[moduleIndex].subtopics[subtopicIndex].topic;
+        } else {
+            // Updating module
+            session.studyPlan[moduleIndex].status = status;
+            topicName = session.studyPlan[moduleIndex].topic;
+
+            // CASCADE: If module is completed, mark subtopics completed
+            if (status === 'completed' && session.studyPlan[moduleIndex].subtopics) {
+                session.studyPlan[moduleIndex].subtopics.forEach(sub => {
+                    sub.status = 'completed';
+                    // Note: We are not syncing individual subtopic status to Neo4j here to save requests.
+                    // The Frontend will reflect this from MongoDB.
+                });
+            }
+        }
+
+        logger.info(`Updating Status: Session=${req.params.sessionId}, Module=${moduleIndex}, Sub=${subtopicIndex}, Topic='${topicName}', Status=${status}`);
+
+        // Checking Next Topic Logic
         if (status === 'completed') {
-            // Find next pending or future topic
-            const nextIndex = topicIndex + 1;
-            if (nextIndex < session.studyPlan.length) {
-                if (session.studyPlan[nextIndex].status === 'pending') {
-                    session.studyPlan[nextIndex].status = 'in-progress';
-                    session.currentTopicIndex = nextIndex;
+            let nextTopic = null;
+            let nextModuleIdx = moduleIndex;
+            let nextSubIdx = subtopicIndex;
 
-                    session.messages.push({
-                        role: 'assistant',
-                        content: `Great job completing **${session.studyPlan[topicIndex].topic}**! 🎉\n\nLet's move on to: **${session.studyPlan[nextIndex].topic}**.`
-                    });
+            // 1. Try next subtopic in SAME module
+            if (subtopicIndex !== undefined && subtopicIndex !== null && session.studyPlan[moduleIndex].subtopics && subtopicIndex + 1 < session.studyPlan[moduleIndex].subtopics.length) {
+                nextSubIdx = subtopicIndex + 1;
+                nextTopic = session.studyPlan[moduleIndex].subtopics[nextSubIdx];
+                logger.info(`Found Next Subtopic: ${nextTopic.topic}`);
+            }
+            // 2. Try next MODULE (start at subtopic 0 if exists)
+            else if (moduleIndex + 1 < session.studyPlan.length) {
+                nextModuleIdx = moduleIndex + 1;
+                const nextModule = session.studyPlan[nextModuleIdx];
+                if (nextModule.subtopics && nextModule.subtopics.length > 0) {
+                    nextSubIdx = 0;
+                    nextTopic = nextModule.subtopics[0];
+                    logger.info(`Found Next Module Subtopic: ${nextTopic.topic}`);
+                } else {
+                    nextSubIdx = null;
+                    nextTopic = nextModule;
+                    logger.info(`Found Next Module: ${nextTopic.topic}`);
                 }
-            } else {
+            }
+
+            if (nextTopic && nextTopic.status === 'pending') {
+                // Auto-start next topic
+                if (nextSubIdx !== null && nextSubIdx !== undefined) {
+                    session.studyPlan[nextModuleIdx].subtopics[nextSubIdx].status = 'in-progress';
+                    // Also enable parent module if it was pending?
+                    session.studyPlan[nextModuleIdx].status = 'in-progress';
+                } else {
+                    session.studyPlan[nextModuleIdx].status = 'in-progress';
+                }
+
+                const nextTitle = nextTopic.topic;
+
+                session.messages.push({
+                    role: 'assistant',
+                    content: `Great job completing **${topicName}**! 🎉\n\nLet's move on to: **${nextTitle}**.`
+                });
+            } else if (!nextTopic) {
                 session.messages.push({
                     role: 'assistant',
                     content: `Congratulations! You've completed the entire study plan! 🎓`
                 });
             }
-        } else if (status === 'in-progress') {
-            session.currentTopicIndex = topicIndex;
         }
 
-        await session.save();
-        res.json(session);
+        // SYNC TO NEO4J
+        try {
+            logger.info(`Sending Neo4j Sync: ${PYTHON_RAG_SERVICE_URL}/study_plan/status`);
+            await axios.put(`${PYTHON_RAG_SERVICE_URL}/study_plan/status`, {
+                user_id: userId.toString(),
+                session_id: req.params.sessionId.toString(),
+                topic: topicName,
+                status: status
+            });
+            logger.info("Neo4j Sync Request Sent.");
+        } catch (err) {
+            logger.error(`Failed to sync status update to Neo4j: ${err.message}`);
+            if (err.response) logger.error(`Neo4j Response: ${JSON.stringify(err.response.data)}`);
+        }
+
+        await SocraticSession.findOneAndUpdate(
+            { _id: req.params.sessionId, userId },
+            { studyPlan: session.studyPlan, $push: { messages: { $each: session.messages.slice(-1) } } },
+            { new: true }
+        );
+
+        const updated = await SocraticSession.findOne({ _id: req.params.sessionId, userId });
+        res.json(updated);
 
     } catch (error) {
+        logger.error(`Update Error: ${error.message}`);
         res.status(500).json({ message: "Failed to update topic" });
     }
 });

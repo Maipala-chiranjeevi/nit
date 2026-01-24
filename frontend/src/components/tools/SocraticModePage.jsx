@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import api from '../../services/api.js';
 import toast from 'react-hot-toast';
 import Button from '../core/Button.jsx';
-import { Send, FileText, ArrowLeft, Loader2, UploadCloud, Plus, MessageSquare, Trash2, BookOpen, CheckCircle, Circle, GraduationCap } from 'lucide-react';
+import { Send, FileText, ArrowLeft, Loader2, UploadCloud, Plus, MessageSquare, Trash2, BookOpen, CheckCircle, Circle, GraduationCap, Network } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import StudyPlanGraph from './StudyPlanGraph.jsx';
 
 export default function SocraticModePage() {
     const [sessions, setSessions] = useState([]);
@@ -13,6 +14,7 @@ export default function SocraticModePage() {
     const [isLoading, setIsLoading] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [generatingPlan, setGeneratingPlan] = useState(false); // New state for plan generation
+    const [showGraph, setShowGraph] = useState(false); // State for graph toggle
     const messagesEndRef = useRef(null);
 
     // Load Sessions on Mount
@@ -174,16 +176,25 @@ export default function SocraticModePage() {
     };
 
     // --- NEW: Handle Topic Status Update ---
-    const handleUpdateTopicStatus = async (index, status) => {
+    // --- NEW: Handle Topic Status Update ---
+    const handleUpdateTopicStatus = async (moduleIndex, subtopicIndex, status) => {
         if (!currentSession) return;
         try {
-            const updatedSession = await api.updateTopicStatus(currentSession._id, index, status);
+            // Check if we are updating a module (2 args) or subtopic (3 args)
+            // If subtopicIndex is string (e.g. 'completed'), it means it was called as (index, status) - old way?
+            // No, the render loop uses (mIndex, tIndex, 'status') OR (mIndex, 'status')?
+            // Let's standardise.
+
+            // If called from the render loop I added: (mIndex, tIndex, 'status')
+
+            const updatedSession = await api.updateTopicStatus(currentSession._id, moduleIndex, subtopicIndex, status);
             setCurrentSession(updatedSession);
             // If the status update triggered a "next topic" message, update messages
             if (updatedSession.messages.length > messages.length) {
                 setMessages(updatedSession.messages);
             }
         } catch (error) {
+            console.error(error);
             toast.error("Failed to update status");
         }
     };
@@ -406,16 +417,25 @@ export default function SocraticModePage() {
                             {/* Study Plan Section */}
                             <div className="flex items-center justify-between mb-2">
                                 <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted-light dark:text-text-muted-dark">Study Plan</h3>
-                                {(!currentSession.studyPlan || currentSession.studyPlan.length === 0) && (
+                                <div className="flex items-center gap-2">
+                                    {(!currentSession.studyPlan || currentSession.studyPlan.length === 0) && (
+                                        <button
+                                            onClick={handleGeneratePlan}
+                                            disabled={generatingPlan}
+                                            className="text-[10px] text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1"
+                                        >
+                                            {generatingPlan ? <Loader2 size={10} className="animate-spin" /> : <BookOpen size={10} />}
+                                            Generate
+                                        </button>
+                                    )}
                                     <button
-                                        onClick={handleGeneratePlan}
-                                        disabled={generatingPlan}
-                                        className="text-[10px] text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1"
+                                        onClick={() => setShowGraph(!showGraph)}
+                                        className="text-gray-500 hover:text-purple-600 dark:hover:text-purple-400 p-1 rounded"
+                                        title={showGraph ? "Show List" : "Show Graph"}
                                     >
-                                        {generatingPlan ? <Loader2 size={10} className="animate-spin" /> : <BookOpen size={10} />}
-                                        Generate
+                                        {showGraph ? <BookOpen size={14} /> : <Network size={14} />}
                                     </button>
-                                )}
+                                </div>
                             </div>
                         </div>
 
@@ -428,51 +448,98 @@ export default function SocraticModePage() {
                                     </p>
                                 </div>
                             ) : (
-                                <div className="space-y-4">
-                                    {currentSession.studyPlan.map((topic, index) => (
-                                        <div key={index} className={`relative pl-4 border-l-2 ${topic.status === 'completed' ? 'border-green-500' : topic.status === 'in-progress' ? 'border-purple-500' : 'border-gray-300 dark:border-gray-700'}`}>
-                                            <div
-                                                className={`absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full border-2 
-                                                ${topic.status === 'completed' ? 'bg-green-500 border-green-500' : topic.status === 'in-progress' ? 'bg-white dark:bg-gray-900 border-purple-500' : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700'}`}
-                                            />
+                                <>
+                                    {showGraph ? (
+                                        <StudyPlanGraph
+                                            plan={currentSession.studyPlan}
+                                            onNodeClick={(index) => {
+                                                // Optional: Scroll to topic or show details
+                                                console.log("Clicked topic index:", index);
+                                            }}
+                                        />
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {currentSession.studyPlan.map((module, mIndex) => (
+                                                <div key={mIndex} className="mb-4">
+                                                    {/* Module */}
+                                                    <div className={`relative pl-4 border-l-2 mb-2 ${module.status === 'completed' ? 'border-green-500' : module.status === 'in-progress' ? 'border-purple-500' : 'border-gray-300 dark:border-gray-700'}`}>
+                                                        <div
+                                                            className={`absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full border-2 
+                                                            ${module.status === 'completed' ? 'bg-green-500 border-green-500' : module.status === 'in-progress' ? 'bg-white dark:bg-gray-900 border-purple-500' : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700'}`}
+                                                        />
+                                                        <div className="mb-1 flex items-start justify-between gap-2">
+                                                            <h4 className={`text-sm font-bold leading-tight ${module.status === 'completed' ? 'text-green-700 dark:text-green-400' : module.status === 'in-progress' ? 'text-purple-700 dark:text-purple-300' : 'text-text-light dark:text-text-dark'}`}>
+                                                                {module.topic}
+                                                            </h4>
 
-                                            <div className="mb-1 flex items-start justify-between gap-2">
-                                                <h4 className={`text-sm font-medium leading-tight ${topic.status === 'completed' ? 'text-green-700 dark:text-green-400' : topic.status === 'in-progress' ? 'text-purple-700 dark:text-purple-300' : 'text-text-light dark:text-text-dark'}`}>
-                                                    {topic.topic}
-                                                </h4>
+                                                            {/* Module Status Toggle */}
+                                                            <div className="flex shrink-0">
+                                                                {module.status !== 'completed' && (
+                                                                    <button
+                                                                        onClick={() => handleUpdateTopicStatus(mIndex, null, 'completed')}
+                                                                        className="text-gray-400 hover:text-green-500" title="Mark Module Complete"
+                                                                    >
+                                                                        <CheckCircle size={14} />
+                                                                    </button>
+                                                                )}
+                                                                {module.status === 'completed' && (
+                                                                    <button
+                                                                        onClick={() => handleUpdateTopicStatus(mIndex, null, 'in-progress')}
+                                                                        className="text-green-500 hover:text-purple-500" title="Mark Module In Progress"
+                                                                    >
+                                                                        <CheckCircle size={14} />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <p className="text-xs text-text-muted-light dark:text-text-muted-dark leading-relaxed mb-2">
+                                                            {module.description}
+                                                        </p>
+                                                    </div>
 
-                                                {/* Status Toggle Buttons */}
-                                                <div className="flex shrink-0">
-                                                    {topic.status !== 'completed' && (
-                                                        <button
-                                                            onClick={() => handleUpdateTopicStatus(index, 'completed')}
-                                                            className="text-gray-400 hover:text-green-500" title="Mark Complete"
-                                                        >
-                                                            <CheckCircle size={14} />
-                                                        </button>
-                                                    )}
-                                                    {topic.status === 'completed' && (
-                                                        <button
-                                                            onClick={() => handleUpdateTopicStatus(index, 'in-progress')}
-                                                            className="text-green-500 hover:text-purple-500" title="Mark In Progress"
-                                                        >
-                                                            <CheckCircle size={14} />
-                                                        </button>
+                                                    {/* Subtopics */}
+                                                    {module.subtopics && module.subtopics.length > 0 && (
+                                                        <div className="ml-4 space-y-2 border-l border-gray-200 dark:border-gray-800 pl-3">
+                                                            {module.subtopics.map((sub, sIndex) => (
+                                                                <div key={sIndex} className="relative">
+                                                                    <div className="flex items-start justify-between gap-2">
+                                                                        <span className={`text-xs ${sub.status === 'completed' ? 'text-green-600 dark:text-green-400 line-through opacity-70' : sub.status === 'in-progress' ? 'text-purple-600 dark:text-purple-400 font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
+                                                                            {sub.topic}
+                                                                        </span>
+                                                                        <div className="flex shrink-0">
+                                                                            {sub.status !== 'completed' && (
+                                                                                <button
+                                                                                    onClick={() => handleUpdateTopicStatus(mIndex, sIndex, 'completed')}
+                                                                                    className="text-gray-400 hover:text-green-500 scale-75" title="Mark Subtopic Complete"
+                                                                                >
+                                                                                    <CheckCircle size={14} />
+                                                                                </button>
+                                                                            )}
+                                                                            {sub.status === 'completed' && (
+                                                                                <button
+                                                                                    onClick={() => handleUpdateTopicStatus(mIndex, sIndex, 'in-progress')}
+                                                                                    className="text-green-500 hover:text-purple-500 scale-75" title="Mark Subtopic In Progress"
+                                                                                >
+                                                                                    <CheckCircle size={14} />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
                                                     )}
                                                 </div>
-                                            </div>
-
-                                            <p className="text-xs text-text-muted-light dark:text-text-muted-dark leading-relaxed">
-                                                {topic.description}
-                                            </p>
+                                            ))}
                                         </div>
-                                    ))}
-                                </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>
-                )}
-            </div>
-        </div>
+                )
+                }
+            </div >
+        </div >
     );
 }

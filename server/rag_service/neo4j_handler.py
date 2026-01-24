@@ -191,3 +191,172 @@ def search_knowledge_graph(user_id: str, document_name: str, query_text: str) ->
     except Exception as e:
         logger.error(f"Error searching KG for doc '{document_name}', user '{user_id}': {e}", exc_info=True)
         return f"An error occurred while searching the knowledge graph: {e}"
+
+# --- Study Plan Graph Functions ---
+
+def _create_study_plan_transactional(tx, user_id, session_id, plan_items):
+    logger.info(f"Creating Study Plan Graph. Items: {len(plan_items) if plan_items else 0}")
+    if plan_items:
+        logger.info(f"First Item: {plan_items[0]}")
+
+    # Flatten checks
+    if not plan_items: return False
+
+    # 1. Create ALL nodes (Modules + Subtopics)
+    # We will process them in a loop to handle the hierarchy
+    
+    # List to hold all node dicts for batch creation
+    all_nodes = []
+    
+    # Store order relative to entire sequence for NEXT_TOPIC
+    
+    for i, module in enumerate(plan_items):
+        # Create Module Node
+        all_nodes.append({
+            "sessionId": session_id,
+            "topic": module["topic"],
+            "description": module.get("description", ""),
+            "status": module.get("status", "pending"),
+            "order": i, # Top level order
+            "type": "Lesson",
+            "is_subtopic": False
+        })
+        
+        if "subtopics" in module and module["subtopics"]:
+            for j, sub in enumerate(module["subtopics"]):
+                all_nodes.append({
+                    "sessionId": session_id,
+                    "topic": sub["topic"],
+                    "description": sub.get("description", ""),
+                    "status": sub.get("status", "pending"),
+                    "order": i * 100 + j, # Composite order for simple sorting
+                    "parent_topic": module["topic"], # Link back
+                    "type": "Topic",
+                    "is_subtopic": True
+                })
+
+    # Batch Create Nodes
+    query_nodes = """
+    UNWIND $nodes as node
+    MERGE (p:PlanTopic {sessionId: $sessionId, topic: node.topic})
+    SET p.userId = $userId, 
+        p.description = node.description, 
+        p.status = node.status, 
+        p.order = toInteger(node.order),
+        p.type = node.type,
+        p.createdAt = timestamp()
+    """
+    tx.run(query_nodes, nodes=all_nodes, sessionId=session_id, userId=user_id)
+
+    # 2. Create Hierarchical Relationships (Lesson CONTAINS Topic)
+    query_contains = """
+    UNWIND $nodes as node
+    WITH node WHERE node.is_subtopic = true
+    MATCH (parent:PlanTopic {sessionId: $sessionId, topic: node.parent_topic})
+    MATCH (child:PlanTopic {sessionId: $sessionId, topic: node.topic})
+    MERGE (parent)-[:CONTAINS]->(child)
+    """
+    tx.run(query_contains, nodes=all_nodes, sessionId=session_id, userId=user_id)
+
+    # 3. Create Sequential Relationships (NEXT_TOPIC)
+    # We sequence subtopics across the whole course? 
+    # Or Lesson -> Lesson AND Topic -> Topic?
+    # Let's do a simple linear sequence of ALL "Topic" (leaf) nodes for the learning path
+    # And separate sequence for "Lesson" nodes.
+    
+    leaf_nodes = [n for n in all_nodes if n["is_subtopic"]]
+    # If no subtopics (flat structure), use top level
+    if not leaf_nodes: 
+        leaf_nodes = [n for n in all_nodes]
+        
+    sorted_leaves = sorted(leaf_nodes, key=lambda x: x['order'])
+    
+    rels = []
+    for i in range(len(sorted_leaves) - 1):
+        rels.append({
+            "from": sorted_leaves[i]['topic'],
+            "to": sorted_leaves[i+1]['topic']
+        })
+        
+    if rels:
+        query_seq = """
+        UNWIND $rels as rel
+        MATCH (p1:PlanTopic {sessionId: $sessionId, topic: rel.from})
+        MATCH (p2:PlanTopic {sessionId: $sessionId, topic: rel.to})
+        MERGE (p1)-[:NEXT_TOPIC]->(p2)
+        """
+        tx.run(query_seq, rels=rels, sessionId=session_id)
+        
+    return True
+
+def _update_plan_status_transactional(tx, user_id, session_id, topic_name, status):
+    logger.info(f"Neo4j Update: Session={session_id}, Topic='{topic_name}', Status={status}")
+    query = """
+    MATCH (p:PlanTopic {sessionId: $sessionId, topic: $topic})
+    WHERE p.userId = $userId
+    SET p.status = $status, p.updatedAt = timestamp()
+    RETURN p.topic, p.status
+    """
+    result = tx.run(query, sessionId=session_id, topic=topic_name, userId=user_id, status=status)
+    record = result.single()
+    if record:
+        logger.info(f"Neo4j Update Success: {record[0]} -> {record[1]}")
+        return {"topic": record[0], "status": record[1]}
+    else:
+        logger.warning(f"Neo4j Update Failed: Node not found for Topic='{topic_name}' in Session='{session_id}'")
+        return None
+
+def _get_study_plan_graph_transactional(tx, user_id, session_id):
+    query = """
+    MATCH (p:PlanTopic {sessionId: $sessionId})
+    WHERE p.userId = $userId
+    OPTIONAL MATCH (p)-[r:NEXT_TOPIC]->(next)
+    RETURN p as node, r as rel, next as next_node
+    ORDER BY p.order ASC
+    """
+    result = tx.run(query, sessionId=session_id, userId=user_id)
+    
+    nodes = {}
+    edges = []
+    
+    for record in result:
+        node = record["node"]
+        node_data = {
+            "topic": node["topic"],
+            "description": node.get("description", ""),
+            "status": node.get("status", "pending"),
+            "order": node.get("order")
+        }
+        nodes[node["topic"]] = node_data
+        
+        if record["rel"] and record["next_node"]:
+             edges.append({
+                 "from": node["topic"],
+                 "to": record["next_node"]["topic"],
+                 "type": "NEXT_TOPIC"
+             })
+             
+    # Return as lists
+    return {"nodes": list(nodes.values()), "edges": edges}
+
+def create_study_plan_graph(user_id: str, session_id: str, plan_items: list) -> bool:
+    try:
+        if not plan_items: return False
+        return _execute_write_tx(_create_study_plan_transactional, user_id, session_id, plan_items)
+    except Exception as e:
+        logger.error(f"Error creating study plan graph for session '{session_id}': {e}", exc_info=True)
+        raise
+
+def update_plan_topic_status(user_id: str, session_id: str, topic_name: str, status: str) -> dict:
+    try:
+        return _execute_write_tx(_update_plan_status_transactional, user_id, session_id, topic_name, status)
+    except Exception as e:
+        logger.error(f"Error updating plan status for topic '{topic_name}' in session '{session_id}': {e}", exc_info=True)
+        raise
+
+def get_study_plan_graph(user_id: str, session_id: str) -> dict:
+    try:
+        return _execute_read_tx(_get_study_plan_graph_transactional, user_id, session_id)
+    except Exception as e:
+        logger.error(f"Error retrieving study plan graph for session '{session_id}': {e}", exc_info=True)
+        raise

@@ -243,8 +243,20 @@ const api = {
         const response = await apiClient.post(`/socratic/session/${sessionId}/plan`);
         return response.data;
     },
-    updateTopicStatus: async (sessionId, topicIndex, status) => {
-        const response = await apiClient.put(`/socratic/session/${sessionId}/topic/${topicIndex}`, { status });
+    updateTopicStatus: async (sessionId, moduleIndex, subtopicIndex, status) => {
+        // Handle overload: if 3 args, it's (sessionId, moduleIndex, status) - backward compatibility or flat structure
+        // If 4 args, it's (sessionId, moduleIndex, subtopicIndex, status)
+        let payload = {};
+        if (status === undefined) {
+            // 3 args: sessionId, moduleIndex, status
+            status = subtopicIndex;
+            payload = { moduleIndex, status };
+        } else {
+            // 4 args
+            payload = { moduleIndex, subtopicIndex, status };
+        }
+
+        const response = await apiClient.put(`/socratic/session/${sessionId}/topic/status`, payload);
         return response.data;
     }
 };
